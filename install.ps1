@@ -41,6 +41,11 @@
 .NOTES
     このスクリプトはPowerShell Core 7.0以上が必要です。
     Windows、Linux、macOSで動作します。
+
+    リモートからの実行:
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir <パス>
+
+    詳細はREADMEを参照: https://github.com/versu/ai-doc
 #>
 
 [CmdletBinding()]
