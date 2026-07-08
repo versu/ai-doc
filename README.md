@@ -7,7 +7,6 @@ AI関連の各種ドキュメントとプロジェクト設定ファイルを管
 このリポジトリには以下の設定ファイルが含まれています：
 - `.ai` - AI関連のドキュメントとプロンプト
 - `.claude` - Claude Codeの設定ファイル
-- `.github` - GitHubワークフローとプロンプト
 
 ## 必要要件
 
@@ -100,10 +99,9 @@ pwsh -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw
 - `.ai/` - AI関連のドキュメントとプロンプト
   - `docs/` - 各種コーディング規約やルール
 - `.claude/` - Claude Codeの設定ファイル
-  - `commands/` - カスタムコマンド
+  - `rules/` - 各種Rule
+  - `skills/` - 各種Skill
   - `settings.json` など
-- `.github/` - GitHubワークフローとプロンプト
-  - `prompts/` - GitHub Copilot用プロンプト
 
 ## 使用例
 
