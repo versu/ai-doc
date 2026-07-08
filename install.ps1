@@ -66,8 +66,6 @@ Set-StrictMode -Version Latest
 $REPO_OWNER = "versu"
 $REPO_NAME = "ai-doc"
 $BRANCH = "main"
-$API_BASE = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
-$RAW_BASE = "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$BRANCH"
 
 # ダウンロード対象ディレクトリ
 $TARGET_DIRECTORIES = @('.ai', '.claude', '.github')
@@ -161,7 +159,12 @@ function Confirm-Overwrite {
 
 <#
 .SYNOPSIS
-    GitHub APIから再帰的なツリー構造を取得します。
+    リポジトリのアーカイブ(tar.gz)を1回のリクエストで取得し、展開します。
+
+.DESCRIPTION
+    ファイルを個別にダウンロードするとリクエスト数が多くなり、
+    raw.githubusercontent.com のレート制限(429 Too Many Requests)に
+    抵触するため、リポジトリ全体を単一アーカイブとして取得して展開します。
 
 .PARAMETER Owner
     リポジトリのオーナー
@@ -172,10 +175,13 @@ function Confirm-Overwrite {
 .PARAMETER Branch
     ブランチ名
 
+.PARAMETER DestDir
+    アーカイブの展開先ディレクトリ
+
 .OUTPUTS
-    ツリーオブジェクトの配列
+    展開されたリポジトリのルートディレクトリパス
 #>
-function Get-GitHubTreeRecursive {
+function Expand-GitHubArchive {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Owner,
@@ -184,88 +190,49 @@ function Get-GitHubTreeRecursive {
         [string]$Repo,
 
         [Parameter(Mandatory = $true)]
-        [string]$Branch
+        [string]$Branch,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestDir
     )
 
-    $Url = "https://api.github.com/repos/$Owner/$Repo/git/trees/${Branch}?recursive=1"
+    # tar コマンドの存在確認(Windows 10 1803+ / macOS / Linux に標準搭載)
+    if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
+        throw "tar コマンドが見つかりません。tar が利用可能な環境で実行してください。"
+    }
+
+    $ArchiveUrl = "https://codeload.github.com/$Owner/$Repo/tar.gz/refs/heads/$Branch"
+    $ArchivePath = Join-Path $DestDir 'repo.tar.gz'
 
     try {
-        $Response = Invoke-RestMethod -Uri $Url -Method Get -Headers @{
-            'Accept'     = 'application/vnd.github.v3+json'
-            'User-Agent' = 'PowerShell-Installer'
-        }
-        return $Response.tree
+        # アーカイブを1回のリクエストで取得
+        Invoke-WebRequest -Uri $ArchiveUrl -OutFile $ArchivePath -ErrorAction Stop
     }
     catch {
-        throw "GitHub APIからのツリー取得に失敗しました: $_"
+        throw "リポジトリアーカイブの取得に失敗しました: $_"
     }
-}
-
-<#
-.SYNOPSIS
-    指定されたパスがダウンロード対象かどうかを判定します。
-
-.PARAMETER Path
-    判定するパス
-
-.OUTPUTS
-    ダウンロード対象の場合はtrue、それ以外はfalse
-#>
-function Test-ShouldDownload {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    # 対象ディレクトリのいずれかに含まれているか
-    foreach ($Dir in $TARGET_DIRECTORIES) {
-        if ($Path -like "$Dir/*" -or $Path -eq $Dir) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
-<#
-.SYNOPSIS
-    GitHubから個別ファイルをダウンロードします。
-
-.PARAMETER FilePath
-    ダウンロードするファイルのリポジトリ内パス
-
-.PARAMETER DestPath
-    保存先のローカルパス
-
-.OUTPUTS
-    成功した場合はtrue、失敗した場合はfalse
-#>
-function Get-FileFromGitHub {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$FilePath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$DestPath
-    )
-
-    $Url = "$RAW_BASE/$FilePath"
 
     try {
-        # ディレクトリ作成
-        $DestDir = Split-Path -Parent $DestPath
-        if (-not (Test-Path $DestDir)) {
-            New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+        # tar.gz を展開
+        tar -xzf $ArchivePath -C $DestDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "tar の終了コードが $LASTEXITCODE です。"
         }
-
-        # ダウンロード
-        Invoke-WebRequest -Uri $Url -OutFile $DestPath -ErrorAction Stop
-        return $true
     }
     catch {
-        Write-ColorOutput "  エラー: $FilePath のダウンロードに失敗しました - $_" 'Error'
-        return $false
+        throw "リポジトリアーカイブの展開に失敗しました: $_"
     }
+
+    # 展開トップは "Repo-<commitSHA>/" という可変名になるため動的に特定する
+    $ExtractedRoot = Get-ChildItem -Path $DestDir -Directory |
+        Where-Object { $_.Name -like "$Repo-*" } |
+        Select-Object -First 1
+
+    if (-not $ExtractedRoot) {
+        throw "展開されたリポジトリのルートディレクトリが見つかりませんでした。"
+    }
+
+    return $ExtractedRoot.FullName
 }
 
 #endregion
@@ -291,71 +258,77 @@ try {
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Path $TempDir | Out-Null
 
-    Write-ColorOutput "ファイルリストを取得中..." 'Info'
+    Write-ColorOutput "リポジトリを取得中..." 'Info'
 
-    # GitHub APIからツリー取得
-    $Tree = Get-GitHubTreeRecursive -Owner $REPO_OWNER -Repo $REPO_NAME -Branch $BRANCH
+    # リポジトリ全体を単一アーカイブとして取得・展開する(429対策)
+    $ExtractedRoot = Expand-GitHubArchive -Owner $REPO_OWNER -Repo $REPO_NAME -Branch $BRANCH -DestDir $TempDir
 
-    # フィルタリング（ファイルのみ、対象ディレクトリのみ）
+    # 対象ディレクトリ配下のファイルを列挙
     # @() を使用して空の結果でも配列として扱う
-    $FilesToDownload = @($Tree | Where-Object {
-            $_.type -eq 'blob' -and (Test-ShouldDownload $_.path)
-        })
+    $FilesToInstall = @()
+    foreach ($Dir in $TARGET_DIRECTORIES) {
+        $SourceDir = Join-Path $ExtractedRoot $Dir
+        if (Test-Path $SourceDir) {
+            $FilesToInstall += Get-ChildItem -Path $SourceDir -Recurse -File
+        }
+    }
 
-    $TotalFiles = $FilesToDownload.Count
-    Write-ColorOutput "ダウンロード対象: $TotalFiles ファイル" 'Info'
+    $TotalFiles = $FilesToInstall.Count
+    Write-ColorOutput "インストール対象: $TotalFiles ファイル" 'Info'
     Write-Host ""
 
-    # ダウンロード対象がない場合
+    # インストール対象がない場合
     if ($TotalFiles -eq 0) {
-        Write-ColorOutput "ダウンロード対象のファイルが見つかりませんでした。" 'Warning'
+        Write-ColorOutput "インストール対象のファイルが見つかりませんでした。" 'Warning'
         Write-ColorOutput "リポジトリに .ai, .claude, .github ディレクトリが存在するか確認してください。" 'Warning'
         exit 0
     }
 
-    # ダウンロードとインストール
+    # 展開済みファイルをコピー(ここではネットワークアクセスは発生しない)
     $SuccessCount = 0
     $SkipCount = 0
     $FailCount = 0
     $CurrentFile = 0
 
-    foreach ($File in $FilesToDownload) {
+    foreach ($File in $FilesToInstall) {
         $CurrentFile++
         $PercentComplete = ($CurrentFile / $TotalFiles) * 100
 
-        Write-Progress -Activity "ファイルをダウンロード中" `
-            -Status "$CurrentFile/$TotalFiles : $($File.path)" `
+        # リポジトリ内の相対パス(表示は "/" 区切りに正規化)
+        $RelativePath = [System.IO.Path]::GetRelativePath($ExtractedRoot, $File.FullName)
+        $DisplayPath = $RelativePath -replace '\\', '/'
+        $TargetFilePath = Join-Path $TargetDir $RelativePath
+
+        Write-Progress -Activity "ファイルをインストール中" `
+            -Status "$CurrentFile/$TotalFiles : $DisplayPath" `
             -PercentComplete $PercentComplete
 
-        $TempFilePath = Join-Path $TempDir $File.path
-        $TargetFilePath = Join-Path $TargetDir $File.path
-
-        # ダウンロード
-        if (Get-FileFromGitHub -FilePath $File.path -DestPath $TempFilePath) {
-            # 上書き確認
-            if (Confirm-Overwrite -FilePath $TargetFilePath -TargetDir $TargetDir -Force:$Force) {
+        # 上書き確認
+        if (Confirm-Overwrite -FilePath $TargetFilePath -TargetDir $TargetDir -Force:$Force) {
+            try {
                 $TargetFileDir = Split-Path -Parent $TargetFilePath
                 if (-not (Test-Path $TargetFileDir)) {
                     New-Item -ItemType Directory -Path $TargetFileDir -Force | Out-Null
                 }
 
-                Copy-Item -Path $TempFilePath -Destination $TargetFilePath -Force
+                Copy-Item -Path $File.FullName -Destination $TargetFilePath -Force
                 Write-Host "  " -NoNewline
                 Write-Host "✓" -ForegroundColor Green -NoNewline
-                Write-Host " $($File.path)"
+                Write-Host " $DisplayPath"
                 $SuccessCount++
             }
-            else {
-                Write-Host "  スキップ: $($File.path)" -ForegroundColor Yellow
-                $SkipCount++
+            catch {
+                Write-ColorOutput "  エラー: $DisplayPath のインストールに失敗しました - $_" 'Error'
+                $FailCount++
             }
         }
         else {
-            $FailCount++
+            Write-Host "  スキップ: $DisplayPath" -ForegroundColor Yellow
+            $SkipCount++
         }
     }
 
-    Write-Progress -Activity "ファイルをダウンロード中" -Completed
+    Write-Progress -Activity "ファイルをインストール中" -Completed
 
     Write-Host ""
     Write-ColorOutput "インストールが完了しました！" 'Success'
