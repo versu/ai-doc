@@ -20,6 +20,8 @@
 .PARAMETER Force
     既存ファイルの上書き確認をスキップします。
     このスイッチを指定すると、すべてのファイルを確認なしで上書きします。
+    また、Git管理下へのインストール時に行うローカル除外設定への追記確認もスキップし、
+    確認なしで追記します。
 
 .EXAMPLE
     .\install.ps1 C:\Projects\MyProject
@@ -69,6 +71,9 @@ $BRANCH = "main"
 
 # ダウンロード対象ディレクトリ
 $TARGET_DIRECTORIES = @('.ai', '.claude', '.github')
+
+# Gitのローカル除外設定へ追記する対象ディレクトリ
+$LOCAL_EXCLUDE_DIRECTORIES = @('.ai', '.claude')
 
 # 一時ディレクトリ用変数（クリーンアップのため）
 $TempDir = $null
@@ -237,6 +242,131 @@ function Expand-GitHubArchive {
 
 #endregion
 
+#region Git関連関数
+
+<#
+.SYNOPSIS
+    インストール先がGit管理下にある場合、インストールしたディレクトリを
+    ローカル除外設定（.git/info/exclude）へ追記します。
+
+.DESCRIPTION
+    リポジトリで共有される.gitignoreを変更せずに、自分の作業環境でのみ
+    設定ファイルを追跡対象外にするための処理です。
+
+    Git管理外の場合やgitコマンドが利用できない場合は何も行いません。
+    既に同じ内容が記載されている場合も追記しません。
+
+.PARAMETER TargetDir
+    インストール先のディレクトリ（絶対パス）
+
+.PARAMETER Directories
+    除外対象とするディレクトリ名
+
+.PARAMETER Force
+    追記確認をスキップし、確認なしで追記します。
+#>
+function Add-GitLocalExclude {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetDir,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Directories,
+
+        [Parameter()]
+        [switch]$Force
+    )
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    # Git管理外ではgitがエラー終了するため、その場合は除外設定を行わない
+    try {
+        $RepoRoot = git -C $TargetDir rev-parse --show-toplevel 2>$null | Select-Object -First 1
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($RepoRoot)) {
+            return
+        }
+
+        # ワークツリーではリポジトリごとの除外設定が共通ディレクトリ側に置かれる
+        $CommonDir = git -C $TargetDir rev-parse --git-common-dir 2>$null | Select-Object -First 1
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($CommonDir)) {
+            return
+        }
+    }
+    catch {
+        return
+    }
+
+    $CommonDir = [System.IO.Path]::GetFullPath($CommonDir, $TargetDir)
+    $ExcludeFile = Join-Path (Join-Path $CommonDir 'info') 'exclude'
+
+    # 除外設定はリポジトリルートからの位置で記述する
+    $RelativeFromRoot = [System.IO.Path]::GetRelativePath($RepoRoot, $TargetDir) -replace '\\', '/'
+    $Prefix = if ($RelativeFromRoot -eq '.') { '' } else { "$RelativeFromRoot/" }
+    $Entries = $Directories | ForEach-Object { "/$Prefix$_/" }
+
+    $ExistingLines = @()
+    if (Test-Path $ExcludeFile) {
+        $ExistingLines = @(Get-Content -LiteralPath $ExcludeFile | ForEach-Object { $_.Trim() })
+    }
+
+    # 先頭・末尾のスラッシュ有無だけが異なる記載も、記載済みとみなす
+    $MissingEntries = @($Entries | Where-Object {
+        $Variants = @($_, $_.TrimStart('/'), $_.TrimEnd('/'), $_.Trim('/'))
+        -not ($ExistingLines | Where-Object { $Variants -contains $_ })
+    })
+
+    if ($MissingEntries.Count -eq 0) {
+        return
+    }
+
+    Write-ColorOutput "インストール先はGit管理下です。以下をローカルの除外設定に追加できます。" 'Info'
+    Write-ColorOutput "  除外設定ファイル: $ExcludeFile" 'Info'
+    foreach ($Entry in $MissingEntries) {
+        Write-Host "    $Entry"
+    }
+
+    if (-not $Force) {
+        Write-ColorOutput "  追加しますか？ (Y/N)" 'Warning'
+        $Response = Read-Host
+        if ($Response -notmatch '^[Yy]$') {
+            Write-Host "  スキップ: ローカルの除外設定は変更しませんでした" -ForegroundColor Yellow
+            Write-Host ""
+            return
+        }
+    }
+
+    try {
+        $ExcludeDir = Split-Path -Parent $ExcludeFile
+        if (-not (Test-Path $ExcludeDir)) {
+            New-Item -ItemType Directory -Path $ExcludeDir -Force | Out-Null
+        }
+
+        $Content = ''
+        if (Test-Path $ExcludeFile) {
+            $Content = Get-Content -LiteralPath $ExcludeFile -Raw
+        }
+        if ($Content -and -not $Content.EndsWith("`n")) {
+            $Content += "`n"
+        }
+        $Content += (($MissingEntries -join "`n") + "`n")
+
+        Set-Content -LiteralPath $ExcludeFile -Value $Content -NoNewline -Encoding utf8NoBOM
+
+        Write-Host "  " -NoNewline
+        Write-Host "✓" -ForegroundColor Green -NoNewline
+        Write-Host " ローカルの除外設定に追加しました"
+        Write-Host ""
+    }
+    catch {
+        Write-ColorOutput "  エラー: ローカルの除外設定の更新に失敗しました - $_" 'Error'
+        Write-Host ""
+    }
+}
+
+#endregion
+
 #region メイン処理
 
 try {
@@ -340,6 +470,8 @@ try {
         Write-ColorOutput "  失敗: $FailCount ファイル" 'Error'
     }
     Write-Host ""
+
+    Add-GitLocalExclude -TargetDir $TargetDir -Directories $LOCAL_EXCLUDE_DIRECTORIES -Force:$Force
 
     # 失敗があった場合は終了コード1
     if ($FailCount -gt 0) {

@@ -77,10 +77,11 @@ pwsh -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw
 
 ### -Force (オプション)
 
-既存ファイルの上書き確認をスキップします。
+各種確認をスキップします。
 
 - このオプションを指定すると、すべてのファイルを確認なしで上書きします
 - 指定しない場合、既存ファイルがあると上書き確認が表示されます
+- Gitのローカル除外設定への追記も、確認なしで行われます
 - エイリアス: `-f`, `-y`, `-yes`
 
 **例:**
@@ -102,6 +103,22 @@ pwsh -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw
   - `rules/` - 各種Rule
   - `skills/` - 各種Skill
   - `settings.json` など
+
+## Gitのローカル除外設定への追記
+
+インストール先がGit管理下の場合、インストール完了後に `.ai` と `.claude` を
+ローカルの除外設定（`.git/info/exclude`）へ追加するか確認します。
+
+- `Y` を入力した場合のみ追記します（`-Force` 指定時は確認なしで追記）
+- リポジトリで共有される `.gitignore` は変更しません
+- 既に記載済みの場合は追記しません
+- Git管理外の場合や `git` コマンドが利用できない場合は何も行いません
+
+**追記される内容の例:**
+```text
+/.ai/
+/.claude/
+```
 
 ## 使用例
 
