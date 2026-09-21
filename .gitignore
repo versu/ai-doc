@@ -1,0 +1,4 @@
+node_modules/
+
+# aidoc install が書き込む、環境ごとの設定
+.claude/settings.local.json

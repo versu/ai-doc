@@ -1,168 +1,125 @@
 # ai-doc
 
-AI関連の各種ドキュメントとプロジェクト設定ファイルを管理するリポジトリです。
+プロジェクト横断で使う AI 向けドキュメント・スキル・エージェントを管理するリポジトリです。
+Claude Code のプラグインとして各プロジェクトから参照するため、**このリポジトリを直せば、導入済みの全プロジェクトに反映されます**（コピーではありません）。
 
-## 概要
+## 構成
 
-このリポジトリには以下の設定ファイルが含まれています：
-- `.ai` - AI関連のドキュメントとプロンプト
-- `.claude` - Claude Codeの設定ファイル
+```
+ai-doc/
+├── .claude-plugin/marketplace.json   マーケットプレイスの定義
+├── plugins/
+│   └── core/                         プラグイン本体
+│       ├── .claude-plugin/plugin.json
+│       ├── skills/<スキル名>/SKILL.md
+│       ├── agents/<エージェント名>.md
+│       └── _docs/                    スキル横断で使うガイド（導入先へ配るもの）
+├── docs/                             このリポジトリ自体の運用ドキュメント
+└── src/                              aidoc コマンド（入口は src/aidoc.js）
+```
+
+プラグインの定義方針（marketplace.json の記載項目、外部プラグインの扱い）は [docs/plugin-management.md](docs/plugin-management.md) にまとめています。
 
 ## 必要要件
 
-- **PowerShell Core 7.0以上** が必要です
-  - PowerShell 5.1（Windows標準）では動作しません
-  - [PowerShell のインストール](https://learn.microsoft.com/ja-jp/powershell/scripting/install/installing-powershell)
-- インターネット接続
+- Node.js 20 以上
+- git
+- Claude Code
 
-## インストール方法
+## セットアップ（マシンごとに1回）
 
-GitHubから直接スクリプトをダウンロードして実行します。
-
-### Windows / Linux / macOS 共通
-
-```powershell
-# カレントディレクトリにインストール
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir .
-
-# 特定のディレクトリにインストール
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir C:\Projects\MyProject
-
-# 相対パスで指定
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir ../other-project
-
-# 既存ファイルを確認せずに上書き（-Force オプション）
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir . -Force
+```bash
+git clone https://github.com/versu/ai-doc.git ~/repos/github.com/versu/ai-doc
+cd ~/repos/github.com/versu/ai-doc
+npm link
 ```
 
-####実行ポリシーエラーが出る場合
+`npm link` を使わない場合は、以降の `aidoc` を `node <ai-doc のパス>/src/aidoc.js` に読み替えてください。
 
-PowerShellの実行ポリシーでブロックされる場合は、以下のいずれかの方法を試してください：
+**クローンしたフォルダは移動・削除しないでください。** 各プロジェクトはこのフォルダを直接参照します。移動した場合は、各プロジェクトで `aidoc install` を実行し直してください。
 
-**方法1: 一時的に実行ポリシーを変更（現在のセッションのみ）**
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir .
+## プロジェクトへの導入（プロジェクトごとに1回）
+
+```bash
+cd ~/repos/my-project
+aidoc install
 ```
 
-**方法2: 一行で実行ポリシーをバイパス**
-```powershell
-pwsh -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir ."
+実行すると、次の設定とディレクトリが用意されます。
+
+| 対象 | 内容 |
+|---|---|
+| `.claude/settings.local.json` | マーケットプレイスの登録、プラグインの有効化、ai-doc へのファイルアクセス許可、`"language": "japanese"`（未設定のときだけ追加） |
+| `.ai/_docs` | ai-doc の `plugins/core/_docs` へのシンボリックリンク |
+| `.ai/_tasks/_done/` | タスク管理用の空ディレクトリ |
+| `.git/info/exclude` | `/.ai/` を追記（settings.local.json が未除外ならそれも追記） |
+| 外部プラグイン | カタログに載せた外部プラグイン（`category: external`）が未導入の場合、導入するか確認したうえでユーザースコープに導入 |
+
+対話モードで初めて起動したときは、フォルダを信頼するか聞かれます。**信頼しないとプラグインが読み込まれません。**
+
+導入後は、スキルが `/core:commit` のように名前空間付きで使えます。自然文（「コミットして」など）で頼む場合は、名前空間を意識する必要はありません。
+
+## 更新
+
+ai-doc を更新するだけで、導入済みの全プロジェクトに反映されます（新しいセッションから有効）。
+
+```bash
+cd ~/repos/github.com/versu/ai-doc
+git pull
 ```
 
-## パラメータ
+スキルやエージェントを**追加**した場合も、各プロジェクトでの再実行は不要です。
 
-### -TargetDir (必須)
+カタログに外部プラグイン（他者が公開しているもの）を登録している場合、その最新化は次で行います。
 
-インストール先のディレクトリパスを指定します。
-
-**指定可能な形式:**
-- カレントディレクトリ: `.`
-- 絶対パス:
-  - Windows: `C:\Projects\MyProject`
-  - Linux/macOS: `/home/user/project`
-- 相対パス: `../other-project`
-
-**例:**
-```powershell
-# カレントディレクトリ
--TargetDir .
-
-# 絶対パス
--TargetDir C:\Users\username\MyProject
-
-# 相対パス
--TargetDir ../my-project
+```bash
+aidoc update
 ```
 
-### -Force (オプション)
+## このリポジトリ自体を開発するとき
 
-各種確認をスキップします。
+`plugins/core` 配下のスキルは、通常の起動では読み込まれません。プラグインとして読み込んで起動してください。
 
-- このオプションを指定すると、すべてのファイルを確認なしで上書きします
-- 指定しない場合、既存ファイルがあると上書き確認が表示されます
-- Gitのローカル除外設定への追記も、確認なしで行われます
-- エイリアス: `-f`, `-y`, `-yes`
-
-**例:**
-```powershell
-# 既存ファイルを確認なしで上書き
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir . -Force
-
-# エイリアスを使用
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir . -f
+```bash
+cd ~/repos/github.com/versu/ai-doc
+claude --plugin-dir plugins/core
 ```
 
-## ダウンロードされるファイル
+スキルを追加・変更するときの規約は [docs/skill-authoring.md](docs/skill-authoring.md) にまとめています。
 
-インストールスクリプトは、以下のディレクトリとファイルをダウンロードします：
+## 導入の解除
 
-- `.ai/` - AI関連のドキュメントとプロンプト
-  - `docs/` - 各種コーディング規約やルール
-- `.claude/` - Claude Codeの設定ファイル
-  - `rules/` - 各種Rule
-  - `skills/` - 各種Skill
-  - `settings.json` など
-
-## Gitのローカル除外設定への追記
-
-インストール先がGit管理下の場合、インストール完了後に `.ai` と `.claude` を
-ローカルの除外設定（`.git/info/exclude`）へ追加するか確認します。
-
-- `Y` を入力した場合のみ追記します（`-Force` 指定時は確認なしで追記）
-- リポジトリで共有される `.gitignore` は変更しません
-- 既に記載済みの場合は追記しません
-- Git管理外の場合や `git` コマンドが利用できない場合は何も行いません
-
-**追記される内容の例:**
-```text
-/.ai/
-/.claude/
+```bash
+cd ~/repos/my-project
+aidoc uninstall
 ```
 
-## 使用例
+プラグインの導入、ファイルアクセス許可、`.ai/_docs` リンクを取り除きます。
+マーケットプレイスの登録は、ai-doc のプラグインがどこかに導入されている間は残します（解除するとそれらも一緒に消えるため）。
+どこにも残っていない場合だけ登録を解除します。
+`.ai/_tasks` と Git のローカル除外設定は、作業内容が残るため削除しません。
+プラグインのキャッシュ（`~/.claude/plugins/cache/ai-doc/`）も残るため、不要であれば削除してください。
 
-### 例1: 新しいプロジェクトにインストール
+## 旧方式（install.ps1）から移行する場合
 
-```powershell
-# 新しいプロジェクトディレクトリを作成
-mkdir MyNewProject
-cd MyNewProject
+旧方式でコピーされたファイルが残っていると、同名のスキルが二重に読み込まれます。導入先で次を削除してから `aidoc install` を実行してください。
 
-# ai-doc設定をインストール
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir .
-```
+- `.ai/docs/`
+- `.claude/skills/`（ai-doc からコピーされたもの）
+- `.claude/rules/`（ai-doc からコピーされたもの）
 
-### 例2: 既存プロジェクトに追加
-
-```powershell
-# 既存プロジェクトディレクトリに移動
-cd C:\Projects\ExistingProject
-
-# 上書き確認付きでインストール（既存ファイルがある場合は確認）
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir .
-```
-
-### 例3: 強制上書きで更新
-
-```powershell
-# 既存の設定を最新版で強制上書き
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/versu/ai-doc/main/install.ps1))) -TargetDir . -Force
-```
+`.git/info/exclude` に残った `/.claude/` の行も、チーム共有の `.claude/` を隠してしまうため削除してください。
 
 ## トラブルシューティング
 
-### 実行ポリシーエラー
+### `aidoc install` したのに `/core:commit` などが出てこない
 
-**エラーメッセージ:**
-```
-... cannot be loaded because running scripts is disabled on this system.
-```
+実行中の Claude Code セッションには反映されません。**セッションを開き直してください。**
+VS Code 拡張の場合は、ウィンドウを再読み込みします（コマンドパレットの `Developer: Reload Window`）。
 
-**解決方法:**
-```powershell
-# 現在のセッションのみ実行ポリシーを変更
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
+`/reload-plugins` では反映されません。`aidoc install` が `.claude/settings.local.json` に書き込んだマーケットプレイスの登録は、Claude Code のプロセス起動時に読み込まれるためです。
 
-または、`-ExecutionPolicy Bypass` オプション付きで pwsh を実行してください。
+## 補足
+
+- Windows ネイティブでは、リンクは junction として作成されます（管理者権限は不要）。ただし動作は未検証です。
+- プラグインが ai-doc のフォルダを直接読む挙動は、Claude Code 2.1.270 で確認したものです。将来のバージョンで変わった場合は、`claude plugin update core@ai-doc` が必要になる可能性があります。

@@ -1,0 +1,17 @@
+{
+  "name": "ai-doc",
+  "owner": {
+    "name": "versu"
+  },
+  "plugins": [
+    {
+      "name": "core",
+      "description": "コミット規約・コーディング規約などのガイドと、それに沿って動くスキル・エージェント",
+      "author": {
+        "name": "versu"
+      },
+      "category": "private",
+      "source": "./plugins/core"
+    }
+  ]
+}

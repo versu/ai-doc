@@ -1,0 +1,14 @@
+{
+  "name": "core",
+  "version": "1.0.0",
+  "description": "コミット規約・コーディング規約などのガイドと、それに沿って動くスキル・エージェント",
+  "author": {
+    "name": "versu"
+  },
+  "keywords": [
+    "documentation",
+    "coding-standards",
+    "commit",
+    "workflow"
+  ]
+}

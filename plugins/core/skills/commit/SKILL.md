@@ -1,7 +1,11 @@
 ---
 name: commit
 description: 今回の作業でClaudeが行った修正内容をステージし（メッセージ提示の前にステージ完了）、コミットメッセージ規約に沿ったメッセージを作成・提示して、ユーザーの承認を得てからコミットするスキル。「コミットして」「変更をコミットして」等のときに使用する。
-allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git commit:*)
+allowed-tools:
+  - Bash(git status *)
+  - Bash(git diff *)
+  - Bash(git add *)
+  - Bash(git commit *)
 ---
 
 # commit Skill
@@ -9,7 +13,10 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git c
 今回の作業で行った修正をコミットするワークフロー。
 
 ## 参照
-- コミットメッセージ規約: `.ai/docs/git-commit-comment-rule.md`
+
+コミットメッセージ規約（毎回その時点の最新内容が取り込まれる）。
+
+@${CLAUDE_SKILL_DIR}/../../_docs/git-commit-comment.md
 
 ## ワークフロー
 
@@ -20,7 +27,7 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git c
   判断に迷う変更があればユーザーに確認する。
 
 ### 2. コミットメッセージを作成する
-`.ai/docs/git-commit-comment-rule.md`（毎回その時点の最新内容を参照）に従い、日本語で作成する。
+「参照」で取り込んだコミットメッセージ規約に従い、日本語で作成する。
 - Prefix・サマリ・本文の構成や見出しはすべて規約ファイルに従う。
   （書式の詳細はこのスキルに複製しない＝規約変更に追従させるため）
 

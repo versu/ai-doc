@@ -1,0 +1,13 @@
+{
+  "name": "aidoc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ai-doc のスキル・ガイドを各プロジェクトへ導入する CLI",
+  "type": "module",
+  "bin": {
+    "aidoc": "src/aidoc.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

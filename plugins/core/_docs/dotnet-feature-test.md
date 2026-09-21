@@ -1,14 +1,10 @@
----
-description: .NET 機能テスト(FeatureTest = IntegrationTest)実装ガイドライン（構成・Factory 方針）
-paths:
-  - "**/*FeatureTest/**/*.cs"
----
-
 # .NET 機能テスト(FeatureTest)実装ガイドライン
 
 本プロジェクト(.NET / ASP.NET Core + EF Core)における機能テスト(= 結合テスト / IntegrationTest)の実装方針。
+対象は `**/*FeatureTest/**/*.cs` 配下のテストコード。
 
-- 言語非依存の基本方針(確認内容・命名・AAA)は `@.ai/docs/feature-test-guide.md` を参照。本ファイルは .NET 固有・構成固有の事項のみを定める。
+- 言語非依存の基本方針(確認内容・命名・AAA)は [feature-test.md](feature-test.md) を参照。本ファイルは .NET 固有・構成固有の事項のみを定める。
+
 - 同一構成の他プロジェクトでも再利用する前提で、特定の機能名・エンティティ名・エンドポイントに依存しない汎用ルールとして記述する。
 
 ---
