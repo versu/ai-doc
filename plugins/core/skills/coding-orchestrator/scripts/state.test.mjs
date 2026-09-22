@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
-import { computeStatus, validateEntry } from './state.mjs';
+import { computeStatus, listTasks, validateEntry, TASKS_RELATIVE_PATH } from './state.mjs';
 
 const at = (n) => `2026-09-22T10:0${n}:00+09:00`;
 
@@ -184,4 +187,89 @@ test('失敗シナリオの無い blocker は弾く', () => {
 
 test('契約どおりの実装結果は通る', () => {
   assert.deepEqual(validateEntry(implementation('01-a')), []);
+});
+
+// --- タスクの一覧 ---------------------------------------------------------
+
+function withTasksDir(fn) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-'));
+  const tasksDir = path.join(root, TASKS_RELATIVE_PATH);
+  fs.mkdirSync(tasksDir, { recursive: true });
+  try {
+    return fn(root, tasksDir);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const writeTask = (tasksDir, name, status) => {
+  const dir = path.join(tasksDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  if (status !== null) fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({ status, tasks: [], histories: [] }));
+  return dir;
+};
+
+test('タスクディレクトリが無ければ空を返す（例外にしない）', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-'));
+  try {
+    assert.deepEqual(listTasks(root).tasks, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('_done 配下は一覧に出さない', () => {
+  withTasksDir((root, tasksDir) => {
+    writeTask(tasksDir, '#42 進行中', { phase: 'execution', currentTask: null, updatedAt: at(1), taskStates: {} });
+    writeTask(tasksDir, '_done', { phase: 'done', currentTask: null, updatedAt: at(0), taskStates: {} });
+    const { tasks } = listTasks(root);
+    assert.deepEqual(tasks.map((t) => t.name), ['#42 進行中']);
+  });
+});
+
+test('新しく触ったものから並ぶ', () => {
+  withTasksDir((root, tasksDir) => {
+    writeTask(tasksDir, '#1 古い', { phase: 'execution', currentTask: null, updatedAt: at(0), taskStates: {} });
+    writeTask(tasksDir, '#2 新しい', { phase: 'execution', currentTask: null, updatedAt: at(9), taskStates: {} });
+    assert.deepEqual(listTasks(root).tasks.map((t) => t.name), ['#2 新しい', '#1 古い']);
+  });
+});
+
+test('選ぶ材料として phase と直近のサマリを返す', () => {
+  withTasksDir((root, tasksDir) => {
+    writeTask(tasksDir, '#42 受注サマリ', {
+      phase: 'execution',
+      currentTask: '#43 キャンセル除外',
+      updatedAt: at(1),
+      taskStates: { '#43 キャンセル除外': { state: 'running', summary: 'キャンセル済みを除外した' } },
+    });
+    const [task] = listTasks(root).tasks;
+    assert.equal(task.phase, 'execution');
+    assert.equal(task.currentTask, '#43 キャンセル除外');
+    assert.equal(task.summary, 'キャンセル済みを除外した');
+  });
+});
+
+test('進行中のタスクが無ければ、最後に埋まったサマリを使う', () => {
+  withTasksDir((root, tasksDir) => {
+    writeTask(tasksDir, '#42 受注サマリ', {
+      phase: 'execution',
+      currentTask: null,
+      updatedAt: at(1),
+      taskStates: { a: { summary: '1つ目' }, b: { summary: '2つ目' }, c: { summary: null } },
+    });
+    assert.equal(listTasks(root).tasks[0].summary, '2つ目');
+  });
+});
+
+test('progress.json が無い／壊れているディレクトリも、理由を添えて一覧に出す', () => {
+  withTasksDir((root, tasksDir) => {
+    writeTask(tasksDir, '#50 作りかけ', null);
+    const broken = path.join(tasksDir, '#51 壊れている');
+    fs.mkdirSync(broken, { recursive: true });
+    fs.writeFileSync(path.join(broken, 'progress.json'), '{ broken');
+    const notes = listTasks(root).tasks.map((t) => t.note);
+    assert.equal(notes.length, 2);
+    assert.ok(notes.every((n) => typeof n === 'string' && n.length > 0));
+  });
 });

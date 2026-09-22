@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { repoRootOf } from './config.mjs';
 
 const REQUIRED_NODE_MAJOR = 20;
 if (Number(process.versions.node.split('.')[0]) < REQUIRED_NODE_MAJOR) {
@@ -304,6 +305,54 @@ function fail(message, code = 1) {
   process.exit(code);
 }
 
+/** タスクディレクトリの置き場所。`_done/` は完了済みなので一覧に出さない。 */
+export const TASKS_RELATIVE_PATH = path.join('.ai', '_tasks');
+const DONE_DIR = '_done';
+
+/**
+ * 進行中のタスクを一覧する。
+ *
+ * どれを選ぶかはユーザーが決めるが、「どれが何だったか」を思い出せる材料
+ * （フェーズと直近のサマリ）が無いと選べないので、status から抜いて添える。
+ * 新しく触ったものから並べる。
+ */
+export function listTasks(cwd) {
+  const repoRoot = repoRootOf(cwd);
+  const tasksDir = path.join(repoRoot, TASKS_RELATIVE_PATH);
+  if (!fs.existsSync(tasksDir)) return { tasksDir, tasks: [] };
+
+  const tasks = fs
+    .readdirSync(tasksDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== DONE_DIR)
+    .map((e) => {
+      const dir = path.join(tasksDir, e.name);
+      const file = progressPathOf(dir);
+      // progress.json が無い／壊れているディレクトリも隠さない。
+      // 黙って落とすと「あるはずのタスクが出てこない」になり、原因が追えなくなる
+      if (!fs.existsSync(file)) return { name: e.name, dir, phase: null, note: 'progress.json がありません' };
+      let doc;
+      try {
+        doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (error) {
+        return { name: e.name, dir, phase: null, note: `progress.json を読めません: ${error.message}` };
+      }
+      const status = doc.status ?? {};
+      const states = status.taskStates ?? {};
+      const summaries = Object.values(states).map((t) => t.summary).filter(Boolean);
+      return {
+        name: e.name,
+        dir,
+        phase: status.phase ?? null,
+        currentTask: status.currentTask ?? null,
+        summary: (status.currentTask ? states[status.currentTask]?.summary : null) ?? summaries.at(-1) ?? null,
+        updatedAt: status.updatedAt ?? null,
+      };
+    })
+    .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
+
+  return { tasksDir, tasks };
+}
+
 // --- サブコマンド ---------------------------------------------------------
 
 function parseArgs(argv) {
@@ -374,6 +423,11 @@ const COMMANDS = {
     const dir = requireDir(args);
     const doc = readDoc(dir);
     console.log(JSON.stringify({ status: doc.status, tasks: doc.tasks }, null, 2));
+  },
+
+  /** 進行中のタスクを一覧する。どれを扱うかを選んでもらうために使う。 */
+  list(args) {
+    console.log(JSON.stringify(listTasks(args.repo ?? process.cwd()), null, 2));
   },
 
   /**

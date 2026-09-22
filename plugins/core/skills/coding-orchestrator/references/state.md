@@ -111,11 +111,33 @@ deferred: エラーメッセージの多言語化はスコープ外
 
 | サブコマンド | すること |
 |---|---|
+| `list [--repo <path>]` | **進行中のタスクを一覧する。** `.ai/_tasks/` を走査し、`_done/` を除き、新しく触った順に並べる |
 | `init --dir <タスクディレクトリ> [--tasks <tasks.json>]` | `progress.json` を作る。既にあれば失敗する |
 | `append --dir <dir>`（標準入力に履歴1件の JSON） | 追記して `status` を更新する。契約に合わなければ**書き込まずに終了コード1** |
 | `recompute --dir <dir>` | `histories` から `status` を作り直す |
 | `show --dir <dir>` | `status` と `tasks` を出力する。**再開時はこれだけ読む** |
 | `review-base --dir <dir> --task <id> [--repo <path>]` | 次のレビュー範囲の起点を git で検証して返す |
+
+### `list` が返すもの
+
+```jsonc
+{
+  "tasksDir": "/abs/.ai/_tasks",
+  "tasks": [
+    { "name": "#42 受注サマリのキャンセル除外",
+      "dir": "/abs/.ai/_tasks/#42 受注サマリのキャンセル除外",
+      "phase": "execution",
+      "currentTask": "#43 キャンセル済みを金額から除く",
+      "summary": "キャンセル済みを金額から除いた",
+      "updatedAt": "2026-09-22T10:00:00+09:00" }
+  ]
+}
+```
+
+`phase` と `summary` を添えるのは、**どれが何だったかを思い出せないと選べない**ため。
+
+`progress.json` が無い、または壊れているディレクトリも `note` を付けて一覧に出す。
+黙って落とすと「あるはずのタスクが出てこない」になり、原因を追えなくなる。
 
 ### `review-base` が返すもの
 
