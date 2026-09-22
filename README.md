@@ -18,6 +18,32 @@ ai-doc/
 └── src/                              aidoc コマンド（入口は src/aidoc.js）
 ```
 
+スキルが使うスクリプトとそのテストは、そのスキルの `scripts/` に置く。
+テストは `npm test`（`node --test`）で実行する。
+
+## 収録しているスキル
+
+| スキル | 何をするか |
+|---|---|
+| `/core:coding-orchestrator` | 仕様の合意から実装・レビュー・PR までを一気通貫で進める。実装とレビューは専用のエージェントに任せ、メインセッションは段取りと裁定に徹する |
+| `/core:prepare-branch` | base ブランチを確定・最新化して作業ブランチを切る |
+| `/core:create-gh-issue` | GitHub Issue を作る（サブ Issue にも対応） |
+| `/core:create-gh-pr` | Pull Request を作る |
+| `/core:commit` | 今回の修正をコミット規約に沿ってコミットする |
+
+### オーケストレーターを使うとき
+
+プロジェクトごとに、最初に一度だけ設定ファイルを作る。
+作成用のコマンドは、設定が無い状態でオーケストレーターを呼べば案内される。
+
+```bash
+node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs init
+```
+
+`.ai/orchestration.json` が作られるので、`implementation.docs` と `review.docs` を
+その現場の規約ファイルに合わせて直してから使う。
+**設定ファイルが無い状態では起動しない**（現場の規約が読まれないまま実装が進むのを防ぐため）。
+
 プラグインの定義方針（marketplace.json の記載項目、外部プラグインの扱い）は [docs/plugin-management.md](docs/plugin-management.md) にまとめています。
 
 ## 必要要件

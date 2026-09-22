@@ -1,0 +1,24 @@
+{
+  "orchestrator": {
+    "createIssue": "ask",
+    "createPullRequest": "ask"
+  },
+  "implementation": {
+    "skills": [],
+    "docs": [
+      ".ai/_docs/coding.md",
+      ".ai/_docs/comment.md",
+      ".ai/_docs/error-handling.md",
+      ".ai/_docs/git-commit-comment.md"
+    ]
+  },
+  "review": {
+    "skills": [],
+    "docs": [
+      ".ai/_docs/coding.md",
+      ".ai/_docs/comment.md",
+      ".ai/_docs/error-handling.md"
+    ],
+    "roundCap": 3
+  }
+}
