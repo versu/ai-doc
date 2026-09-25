@@ -315,42 +315,53 @@ const DONE_DIR = '_done';
  * どれを選ぶかはユーザーが決めるが、「どれが何だったか」を思い出せる材料
  * （フェーズと直近のサマリ）が無いと選べないので、status から抜いて添える。
  * 新しく触ったものから並べる。
+ *
+ * `progress.json` の無いディレクトリは、手で作ったメモ置き場などオーケストレーターと
+ * 無関係なものなので候補（tasks）に入れず、名前だけを ignored に返す。
  */
 export function listTasks(cwd) {
   const repoRoot = repoRootOf(cwd);
   const tasksDir = path.join(repoRoot, TASKS_RELATIVE_PATH);
-  if (!fs.existsSync(tasksDir)) return { tasksDir, tasks: [] };
+  if (!fs.existsSync(tasksDir)) return { tasksDir, tasks: [], ignored: [] };
 
-  const tasks = fs
-    .readdirSync(tasksDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name !== DONE_DIR)
-    .map((e) => {
-      const dir = path.join(tasksDir, e.name);
-      const file = progressPathOf(dir);
-      // progress.json が無い／壊れているディレクトリも隠さない。
-      // 黙って落とすと「あるはずのタスクが出てこない」になり、原因が追えなくなる
-      if (!fs.existsSync(file)) return { name: e.name, dir, phase: null, note: 'progress.json がありません' };
-      let doc;
-      try {
-        doc = JSON.parse(fs.readFileSync(file, 'utf8'));
-      } catch (error) {
-        return { name: e.name, dir, phase: null, note: `progress.json を読めません: ${error.message}` };
-      }
-      const status = doc.status ?? {};
-      const states = status.taskStates ?? {};
-      const summaries = Object.values(states).map((t) => t.summary).filter(Boolean);
-      return {
-        name: e.name,
-        dir,
-        phase: status.phase ?? null,
-        currentTask: status.currentTask ?? null,
-        summary: (status.currentTask ? states[status.currentTask]?.summary : null) ?? summaries.at(-1) ?? null,
-        updatedAt: status.updatedAt ?? null,
-      };
-    })
-    .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
+  const tasks = [];
+  const ignored = [];
+  for (const e of fs.readdirSync(tasksDir, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name === DONE_DIR) continue;
+    const dir = path.join(tasksDir, e.name);
+    const file = progressPathOf(dir);
+    if (!fs.existsSync(file)) {
+      ignored.push(e.name);
+      continue;
+    }
+    // progress.json があるのに読めないものは隠さない。オーケストレーターが作ったファイルが
+    // 壊れている可能性が高く、黙って落とすと「あるはずのタスクが出てこない」になり、原因が追えなくなる
+    let doc;
+    try {
+      doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (error) {
+      tasks.push({ name: e.name, dir, phase: null, note: `progress.json を読めません: ${error.message}` });
+      continue;
+    }
+    const status = doc?.status;
+    if (typeof status !== 'object' || status === null || Array.isArray(status)) {
+      tasks.push({ name: e.name, dir, phase: null, note: 'progress.json に status がありません' });
+      continue;
+    }
+    const states = status.taskStates ?? {};
+    const summaries = Object.values(states).map((t) => t.summary).filter(Boolean);
+    tasks.push({
+      name: e.name,
+      dir,
+      phase: status.phase ?? null,
+      currentTask: status.currentTask ?? null,
+      summary: (status.currentTask ? states[status.currentTask]?.summary : null) ?? summaries.at(-1) ?? null,
+      updatedAt: status.updatedAt ?? null,
+    });
+  }
+  tasks.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
 
-  return { tasksDir, tasks };
+  return { tasksDir, tasks, ignored: ignored.sort() };
 }
 
 // --- サブコマンド ---------------------------------------------------------

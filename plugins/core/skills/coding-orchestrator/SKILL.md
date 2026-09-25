@@ -77,16 +77,16 @@ node ${CLAUDE_SKILL_DIR}/scripts/config.mjs check
 node ${CLAUDE_SKILL_DIR}/scripts/state.mjs list
 ```
 
-`.ai/_tasks/` の走査、`_done/` の除外、新しい順の並べ替え、選ぶ材料
-（`phase` と直近のサマリ）の取り出しは、このコマンドが済ませている。
-**自分でディレクトリを漁らない。**
+`.ai/_tasks/` の走査、`_done/` と無関係なフォルダ（`progress.json` の無いもの）の除外、
+新しい順の並べ替え、選ぶ材料（`phase` と直近のサマリ）の取り出しは、このコマンドが済ませている。
+**自分でディレクトリを漁らない。** 候補は `tasks` だけで、`ignored` に並ぶフォルダは候補として提示しない。
 
 | `tasks` の数 | すること |
 |---|---|
 | 0 | **新規**。STEP 3 へ |
 | 1 以上 | `AskUserQuestion` で、どれの続きか／別の依頼かを聞く |
 
-`note` が付いているタスクは `progress.json` が無いか壊れている。
+`note` が付いているタスクは `progress.json` が壊れている。
 選択肢からは外さず、選ばれたらその旨を伝えてどうするかを聞く
 （黙って隠すと「あるはずのタスクが出てこない」になり、原因を追えなくなる）。
 

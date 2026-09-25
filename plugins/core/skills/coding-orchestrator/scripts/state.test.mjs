@@ -262,14 +262,36 @@ test('進行中のタスクが無ければ、最後に埋まったサマリを�
   });
 });
 
-test('progress.json が無い／壊れているディレクトリも、理由を添えて一覧に出す', () => {
+test('progress.json が無いディレクトリは候補に出さず、ignored に入れる', () => {
   withTasksDir((root, tasksDir) => {
-    writeTask(tasksDir, '#50 作りかけ', null);
+    writeTask(tasksDir, '#42 進行中', { phase: 'execution', currentTask: null, updatedAt: at(1), taskStates: {} });
+    writeTask(tasksDir, 'メモ置き場', null);
+    const { tasks, ignored } = listTasks(root);
+    assert.deepEqual(tasks.map((t) => t.name), ['#42 進行中']);
+    assert.deepEqual(ignored, ['メモ置き場']);
+  });
+});
+
+test('progress.json が壊れているディレクトリは、理由を添えて候補に残す', () => {
+  withTasksDir((root, tasksDir) => {
     const broken = path.join(tasksDir, '#51 壊れている');
     fs.mkdirSync(broken, { recursive: true });
     fs.writeFileSync(path.join(broken, 'progress.json'), '{ broken');
-    const notes = listTasks(root).tasks.map((t) => t.note);
-    assert.equal(notes.length, 2);
-    assert.ok(notes.every((n) => typeof n === 'string' && n.length > 0));
+    const noStatus = path.join(tasksDir, '#52 status なし');
+    fs.mkdirSync(noStatus, { recursive: true });
+    fs.writeFileSync(path.join(noStatus, 'progress.json'), JSON.stringify({ histories: [] }));
+    const { tasks, ignored } = listTasks(root);
+    assert.equal(tasks.length, 2);
+    assert.ok(tasks.every((t) => typeof t.note === 'string' && t.note.length > 0));
+    assert.deepEqual(ignored, []);
+  });
+});
+
+test('タスク置き場の直下のファイルは、候補にも ignored にも出さない', () => {
+  withTasksDir((root, tasksDir) => {
+    fs.writeFileSync(path.join(tasksDir, 'memo.md'), '# メモ');
+    const { tasks, ignored } = listTasks(root);
+    assert.deepEqual(tasks, []);
+    assert.deepEqual(ignored, []);
   });
 });
