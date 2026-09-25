@@ -7,6 +7,7 @@
  *
  * show は常に終了コード0で返す。SKILL.md のインラインシェルから呼ばれるため、
  * 失敗を終了コードではなく JSON の ok / reason で伝える。
+ * check は同じ判定を行い、問題があれば終了コード1で返す。スキルの開始時に Bash から呼ばれる。
  */
 
 import { execFileSync } from 'node:child_process';
@@ -61,44 +62,75 @@ export function resolveDocPath(docPath, repoRoot) {
   return path.join(repoRoot, docPath);
 }
 
-/** 欠けているキーを既定値で補い、値の妥当性を確かめる。戻り値の errors が空なら使える。 */
+const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * 欠けているキーを既定値で補い、値の妥当性を確かめる。戻り値の errors が空なら使える。
+ * 問題は最初の1件で止めずにすべて集める。直しては再実行、を繰り返させないため。
+ */
 export function mergeConfig(raw, base = defaults()) {
+  if (!isPlainObject(raw)) {
+    return { config: null, errors: [`設定ファイルの最上位は JSON オブジェクト（{ ... }）にしてください（現在: ${JSON.stringify(raw)}）`] };
+  }
+
   const errors = [];
-  const merged = {
-    orchestrator: { ...base.orchestrator, ...(raw.orchestrator ?? {}) },
-    implementation: { ...base.implementation, ...(raw.implementation ?? {}) },
-    review: { ...base.review, ...(raw.review ?? {}) },
-    pullRequest: { ...base.pullRequest, ...(raw.pullRequest ?? {}) },
-  };
+  const sections = Object.keys(base);
+  // 既知のキーは既定値の雛形から作る。項目を足したときに一覧の更新漏れが起きないようにするため
+  for (const key of Object.keys(raw)) {
+    if (!sections.includes(key)) {
+      errors.push(`${key}: 未知のキーです。使えるのは ${sections.join(' / ')} です（綴りを確認してください）`);
+    }
+  }
+  const merged = {};
+  for (const section of sections) {
+    const value = raw[section] ?? {};
+    if (!isPlainObject(value)) {
+      errors.push(`${section}: オブジェクト（{ ... }）を指定してください（現在: ${JSON.stringify(value)}）`);
+      merged[section] = { ...base[section] };
+      continue;
+    }
+    for (const key of Object.keys(value)) {
+      if (!(key in base[section])) {
+        errors.push(`${section}.${key}: 未知のキーです。使えるのは ${Object.keys(base[section]).join(' / ')} です（綴りを確認してください）`);
+      }
+    }
+    merged[section] = { ...base[section], ...value };
+  }
 
   for (const key of ['createIssue', 'createPullRequest']) {
     if (!ASK_OR_BOOL.includes(merged.orchestrator[key])) {
       errors.push(`orchestrator.${key}: "ask" / true / false のいずれかを指定してください（現在: ${JSON.stringify(merged.orchestrator[key])}）`);
     }
   }
-  for (const section of ['implementation', 'review']) {
-    for (const key of ['skills', 'docs']) {
-      if (!Array.isArray(merged[section][key])) {
-        errors.push(`${section}.${key}: 配列を指定してください（現在: ${JSON.stringify(merged[section][key])}）`);
-      }
+  const checkStringArray = (name, value) => {
+    if (!Array.isArray(value)) {
+      errors.push(`${name}: 配列を指定してください（現在: ${JSON.stringify(value)}）`);
+      return false;
     }
+    const invalid = value.filter((v) => typeof v !== 'string' || v.trim() === '');
+    if (invalid.length > 0) {
+      errors.push(`${name}: 要素は空でない文字列にしてください（不正な要素: ${invalid.map((v) => JSON.stringify(v)).join(', ')}）`);
+      return false;
+    }
+    return true;
+  };
+  for (const section of ['implementation', 'review']) {
+    checkStringArray(`${section}.skills`, merged[section].skills);
     // docs だけは上書きせず既定に追加する。共通の規約を読ませたまま、現場の規約を足せるようにするため
-    if (Array.isArray(merged[section].docs)) {
+    if (checkStringArray(`${section}.docs`, merged[section].docs)) {
       merged[section].docs = [...new Set([...base[section].docs, ...merged[section].docs])];
     }
   }
   const { template } = merged.pullRequest;
-  if (template !== null && typeof template !== 'string') {
+  if (template !== null && (typeof template !== 'string' || template.trim() === '')) {
     errors.push(`pullRequest.template: ファイルのパスか null を指定してください（現在: ${JSON.stringify(template)}）`);
   }
-  if (!Array.isArray(merged.pullRequest.docs)) {
-    errors.push(`pullRequest.docs: 配列を指定してください（現在: ${JSON.stringify(merged.pullRequest.docs)}）`);
-  }
+  checkStringArray('pullRequest.docs', merged.pullRequest.docs);
   if (!Number.isInteger(merged.review.roundCap) || merged.review.roundCap < 1) {
     errors.push(`review.roundCap: 1 以上の整数を指定してください（現在: ${JSON.stringify(merged.review.roundCap)}）`);
   }
   // commit スキルはユーザーの承認を求めるが、実装エージェントは質問できないので噛み合わない
-  if ((merged.implementation.skills ?? []).some((s) => s === 'commit' || s === 'core:commit')) {
+  if (Array.isArray(merged.implementation.skills) && merged.implementation.skills.some((s) => s === 'commit' || s === 'core:commit')) {
     errors.push('implementation.skills: commit スキルは指定できません。ユーザーの承認を求める設計のため、質問できない実装エージェントとは契約が矛盾します。コミット規約は implementation.docs 経由で読ませてください');
   }
 
@@ -143,10 +175,37 @@ export function loadConfig(cwd) {
   const pullRequestDocs = resolveDocs(config.pullRequest.docs);
   // 未設定（null）なら PR 作成スキルの既定テンプレートを使う
   const pullRequestTemplate = config.pullRequest.template === null ? null : resolveDoc(config.pullRequest.template);
-  // 現場によって規約ファイルの有無は変わる。ここで止めると使い物にならないので、警告にとどめる
-  const missingDocs = [...implementationDocs, ...reviewDocs, ...pullRequestDocs, ...(pullRequestTemplate ? [pullRequestTemplate] : [])]
-    .filter((d) => !d.exists)
-    .map((d) => d.path);
+
+  // 読ませるはずの規約が無いまま進むと、規約を守らない実装とレビューが通ってしまう。ここで止める
+  const base = defaults();
+  const isDefaultDoc = (p) => base.implementation.docs.includes(p) || base.review.docs.includes(p);
+  // 同じファイルを複数の項目が指していることがあるので、ファイルごとに1行にまとめる
+  const missingByPath = new Map();
+  const collectMissing = (name, docs) => {
+    for (const d of docs.filter((doc) => !doc.exists)) {
+      const entry = missingByPath.get(d.path) ?? { doc: d, names: [] };
+      entry.names.push(name);
+      missingByPath.set(d.path, entry);
+    }
+  };
+  collectMissing('implementation.docs', implementationDocs);
+  collectMissing('review.docs', reviewDocs);
+  collectMissing('pullRequest.docs', pullRequestDocs);
+  if (pullRequestTemplate) collectMissing('pullRequest.template', [pullRequestTemplate]);
+  const missingErrors = [...missingByPath.values()].map(({ doc, names }) => {
+    const hint = isDefaultDoc(doc.path) ? '。既定の規約なので、このプロジェクトで aidoc install を実行したか確認してください' : '';
+    return `${names.join(' / ')}: ファイルがありません: ${doc.path}（解決先: ${doc.resolved}）${hint}`;
+  });
+  if (missingErrors.length > 0) {
+    return {
+      ok: false,
+      reason: 'missing-docs',
+      configPath,
+      message: missingErrors.join('\n'),
+      errors: missingErrors,
+      missingDocs: [...missingByPath.keys()],
+    };
+  }
 
   return {
     ok: true,
@@ -156,7 +215,6 @@ export function loadConfig(cwd) {
     implementation: { skills: config.implementation.skills, docs: implementationDocs },
     review: { skills: config.review.skills, docs: reviewDocs, roundCap: config.review.roundCap },
     pullRequest: { template: pullRequestTemplate, docs: pullRequestDocs },
-    missingDocs: [...new Set(missingDocs)],
   };
 }
 
@@ -191,6 +249,22 @@ const COMMANDS = {
   /** 解決済みの設定を返す。インラインシェルから呼ばれるため常に終了コード0。 */
   show(args) {
     console.log(JSON.stringify(loadConfig(args.repo ?? process.cwd()), null, 2));
+  },
+
+  /**
+   * 設定を検証し、問題をすべて列挙する。問題があれば終了コード1。
+   * 判定は show と同じ loadConfig なので、両者の ok は食い違わない。
+   */
+  check(args) {
+    const result = loadConfig(args.repo ?? process.cwd());
+    const report = { ok: result.ok, configPath: result.configPath };
+    if (!result.ok) {
+      report.reason = result.reason;
+      report.errors = result.errors ?? [result.message];
+      if (result.initCommand) report.initCommand = result.initCommand;
+    }
+    console.log(JSON.stringify(report, null, 2));
+    if (!result.ok) process.exitCode = 1;
   },
 };
 

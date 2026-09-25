@@ -113,8 +113,8 @@ PR 作成スキルを呼ぶ。**宛先は base ブランチ**（積み上げな�
 
 | 渡すもの | 設定から取る値 |
 |---|---|
-| 本文のテンプレート | `pullRequest.template` が null でなく `exists` が true のときの `resolved`。それ以外は渡さない（PR 作成スキルの既定を使う） |
-| 追加の規約 | `pullRequest.docs` のうち `exists` が true のものの `resolved` |
+| 本文のテンプレート | `pullRequest.template` が null でなければ、その `resolved`。null なら渡さない（PR 作成スキルの既定を使う） |
+| 追加の規約 | `pullRequest.docs` の各 `resolved` |
 
 作成したら `pull-request` の履歴を追記する。
 

@@ -64,15 +64,39 @@
 
 ## 読み方
 
-1. ファイルが無ければ **止まる**（`show` が返す `initCommand` を提示する）
-2. `docs` や `pullRequest.template` のパスが存在しなければ、**警告してスキップ**し処理を続ける。
-   現場によって規約ファイルの有無が変わるため、ここで止めると使い物にならない。
-   テンプレートが無い場合は既定のテンプレートに戻す
+1. 開始時に `config.mjs check` で検証し、問題があれば **止まる**（下の「検証」を参照）
+2. 書かれたパス（既定の規約を含む）のファイルが無い場合も **止まる**。
+   読ませるはずの規約が無いまま進むと、規約を守らない実装とレビューが通ってしまうため
 3. `"ask"` はその場でユーザーに確認する。非対話で回したい現場は `true` / `false` を書く
 4. `skills` の名前は、SKILL.md 冒頭の呼び出し先の解決表と同じ規則で解決する
 5. **`implementation.skills` に `core:commit` は書かない。**
    `commit` スキルはユーザーの承認を求めるが、実装エージェントはユーザーに質問できないため
    契約が矛盾する。コミットメッセージ規約は `implementation.docs` 経由で読ませる
+
+## 検証
+
+```bash
+node <このスキル>/scripts/config.mjs check
+```
+
+問題があれば終了コード1で、`{ ok, reason, configPath, errors }` を返す。
+問題は最初の1件で止めず、すべて `errors` に並べる。`show` も同じ判定を使うので、`ok` は両者で一致する。
+検査は下の表の順に段階を踏み、ある段階で問題があればそこで止める（記法が誤っていると、パスが正しく読み取れないため）。
+そのため、記法を直すと、次の段階のファイルの有無の問題が新たに出ることがある。
+
+| 検査 | 不合格の例 | `reason` |
+|---|---|---|
+| 設定ファイルがある | — | `not-initialized` |
+| JSON として読める | `{ broken` | `invalid-json` |
+| 最上位と各セクションがオブジェクト | `[]`、`"review": []` | `invalid-value` |
+| 未知のキーが無い | `implemntation`、`review.roundcap` | `invalid-value` |
+| 値の型と範囲 | `createIssue: "yes"`、`roundCap: 0`、`template: 1` | `invalid-value` |
+| 配列の要素が空でない文字列 | `docs: [1]`、`docs: [""]` | `invalid-value` |
+| `implementation.skills` に `commit` が無い | `["core:commit"]` | `invalid-value` |
+| 書かれたパスのファイルがある | `docs/ない.md`、`.ai/_docs/coding.md`（`aidoc install` 漏れ） | `missing-docs` |
+
+既知のキーは [orchestration.default.json](orchestration.default.json) のキーから作る。
+項目を増やすときは、そのファイルに既定値を足せば検証も追従する。
 
 ## 設定に持たないもの
 

@@ -135,8 +135,23 @@ PR を作るときは、上とは別に PR 作成スキルが自分の既定を�
 ```
 
 - パスは**リポジトリのルートからの相対パス**で書く。サブフォルダから Claude Code を起動しても同じファイルを指す
-- 書いたパスにファイルが無い場合は、警告を出してそのファイルだけ読み飛ばす
 - `implementation.skills` に `core:commit` は書かない。`commit` スキルはユーザーの承認を求めるが、実装エージェントはユーザーに質問できないため。コミットメッセージ規約は `implementation.docs` で読ませる
+
+### 設定の検証
+
+オーケストレーターは起動するとまず設定ファイルを検証し、問題があれば理由をすべて示して止まる。
+設定を直したあとは、次のコマンドで同じ検証を自分で確かめられる。問題が無ければ終了コード0で `"ok": true` を返す。
+
+```bash
+node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs check
+```
+
+止まるのは次のようなとき。
+
+- JSON の構文が誤っている
+- キー名を綴り間違えている（`implemntation` など）
+- 値の型や範囲が誤っている（`roundCap: 0`、`docs: [1]` など）
+- 書いたパスのファイルが無い。既定の規約（`.ai/_docs/...`）が無い場合は、そのプロジェクトで `aidoc install` を実行したかを確認する
 
 各項目の型やパスの解決規則は [references/config.md](../../plugins/core/skills/coding-orchestrator/references/config.md) にある。
 既定値の正本は [orchestration.default.json](../../plugins/core/skills/coding-orchestrator/references/orchestration.default.json)。
