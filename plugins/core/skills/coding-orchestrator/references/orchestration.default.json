@@ -9,6 +9,7 @@
       ".ai/_docs/coding.md",
       ".ai/_docs/comment.md",
       ".ai/_docs/error-handling.md",
+      ".ai/_docs/feature-test.md",
       ".ai/_docs/git-commit-comment.md"
     ]
   },
@@ -17,7 +18,8 @@
     "docs": [
       ".ai/_docs/coding.md",
       ".ai/_docs/comment.md",
-      ".ai/_docs/error-handling.md"
+      ".ai/_docs/error-handling.md",
+      ".ai/_docs/feature-test.md"
     ],
     "roundCap": 3
   },

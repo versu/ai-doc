@@ -42,6 +42,7 @@
 | `.ai/_docs/coding.md` | コーディングガイドライン | ○ | ○ |
 | `.ai/_docs/comment.md` | コメント記載ガイドライン | ○ | ○ |
 | `.ai/_docs/error-handling.md` | エラーハンドリングガイドライン | ○ | ○ |
+| `.ai/_docs/feature-test.md` | 機能テストガイドライン | ○ | ○ |
 | `.ai/_docs/git-commit-comment.md` | コミットメッセージの書式 | ○ | — |
 
 `config.mjs init` が作る設定ファイルでは、この2項目を空の配列にしてある。現場で足した規約だけが並ぶようにするため。

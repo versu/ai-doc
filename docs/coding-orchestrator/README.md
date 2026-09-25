@@ -108,6 +108,7 @@ node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs init
 | `.ai/_docs/coding.md` | コーディングガイドライン | ○ | ○ |
 | `.ai/_docs/comment.md` | コメント記載ガイドライン | ○ | ○ |
 | `.ai/_docs/error-handling.md` | エラーハンドリングガイドライン | ○ | ○ |
+| `.ai/_docs/feature-test.md` | 機能テストガイドライン | ○ | ○ |
 | `.ai/_docs/git-commit-comment.md` | コミットメッセージの書式 | ○ | — |
 
 たとえば PHP のプロジェクトで言語別の規約も読ませたい場合は、次のように足す。
