@@ -176,6 +176,13 @@ node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs check
 「PR にコメントが付いた」と伝えて呼ぶ。どの指摘に対応するかを選ぶと、修正とレビューのあとに既存の PR へ push する。
 新しい PR は作らない。
 
+### タスクを完了にする
+
+PR のレビュー対応が済んだら、「タスクを完了にして」と伝える。
+タスクのフォルダが `.ai/_tasks/_done/` へ移り、以後は進行中のタスクの一覧に出なくなる。
+
+**完了を伝えるまで、タスクは一覧に残る。** PR を作ったあとは「PR 作成済み」（`pr-created`）として一覧に出るので、レビュー対応のときにそこから選べる。
+
 ## 作られるもの
 
 タスクごとに `.ai/_tasks/` の下へフォルダが作られる。`.ai/` は Git の管理対象から除外されているので、プロジェクトのリポジトリには入らない。
@@ -190,4 +197,4 @@ node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs check
 
 - フォルダ名は `#<Issue 番号> <Issue タイトル>`。Issue を起票しなかった場合は番号なしのタスク名になる
 - `progress.json` は手で編集しない。記録の追記と現在状態の更新がずれて、再開できなくなる
-- すべてのタスクが終わると、フォルダは `.ai/_tasks/_done/` へ移される
+- フォルダが `.ai/_tasks/_done/` へ移るのは、タスクを完了にするよう伝えたときだけ。PR を作っただけでは移らない

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { computeStatus, listTasks, validateEntry, TASKS_RELATIVE_PATH } from './state.mjs';
+import { completeTask, computeStatus, listTasks, validateEntry, TASKS_RELATIVE_PATH } from './state.mjs';
 
 const at = (n) => `2026-09-22T10:0${n}:00+09:00`;
 
@@ -29,7 +29,7 @@ test('履歴が無ければ pending、合意前は preparation', () => {
   assert.equal(status.taskStates['01-a'].state, 'pending');
 });
 
-test('未解決ブロッカーが 0 のレビューでタスクは done になる', () => {
+test('未解決ブロッカーが 0 のレビューでタスクは done になり、全体は pr-created になる', () => {
   const histories = [
     { at: at(0), kind: 'agreement', task: null, data: { summary: '合意', parentIssue: null } },
     branch('01-a', 'base1', 'feat/01-a'),
@@ -38,7 +38,7 @@ test('未解決ブロッカーが 0 のレビューでタスクは done にな�
   ];
   const status = computeStatus(docOf([{ id: '01-a', title: 'A', issue: null }], histories));
   assert.equal(status.taskStates['01-a'].state, 'done');
-  assert.equal(status.phase, 'done');
+  assert.equal(status.phase, 'pr-created');
   assert.equal(status.currentTask, null);
 });
 
@@ -293,5 +293,78 @@ test('タスク置き場の直下のファイルは、候補にも ignored に�
     const { tasks, ignored } = listTasks(root);
     assert.deepEqual(tasks, []);
     assert.deepEqual(ignored, []);
+  });
+});
+
+const finishedHistories = () => [
+  { at: at(0), kind: 'agreement', task: null, data: { summary: '合意', parentIssue: null } },
+  branch(null, 'base1', 'feat/a'),
+  implementation(null),
+  review(null, { unresolvedBlockers: 0 }),
+  { at: at(3), kind: 'pull-request', task: null, data: { number: 12, base: 'main' } },
+];
+
+test('completion があれば phase は done になる', () => {
+  const histories = [...finishedHistories(), { at: at(5), kind: 'completion', task: null, data: { forced: false } }];
+  assert.equal(computeStatus(docOf([], histories)).phase, 'done');
+});
+
+test('completion の data は forced（真偽値）が必要', () => {
+  assert.deepEqual(validateEntry({ kind: 'completion', task: null, data: { forced: false } }), []);
+  assert.ok(validateEntry({ kind: 'completion', task: null, data: {} }).length > 0);
+});
+
+const writeProgress = (tasksDir, name, histories) => {
+  const dir = path.join(tasksDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const doc = docOf([], histories);
+  doc.status = computeStatus(doc);
+  fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify(doc));
+  return dir;
+};
+
+test('pr-created のタスクは完了にすると _done/ へ移り、一覧から消える', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeProgress(tasksDir, '#42 受注サマリ', finishedHistories());
+    const result = completeTask(dir);
+    assert.equal(result.phase, 'done');
+    assert.equal(result.to, path.join(tasksDir, '_done', '#42 受注サマリ'));
+    assert.equal(fs.existsSync(dir), false);
+    const moved = JSON.parse(fs.readFileSync(path.join(result.to, 'progress.json'), 'utf8'));
+    assert.equal(moved.status.phase, 'done');
+    assert.equal(moved.histories.at(-1).data.forced, false);
+    assert.deepEqual(listTasks(root).tasks, []);
+  });
+});
+
+test('pr-created でなければ --force 無しでは何も変えずに失敗し、付ければ完了にできる', () => {
+  withTasksDir((root, tasksDir) => {
+    const histories = finishedHistories().slice(0, 3);
+    const dir = writeProgress(tasksDir, '#43 実装中', histories);
+    const before = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
+    assert.throws(() => completeTask(dir), /--force/);
+    assert.equal(fs.readFileSync(path.join(dir, 'progress.json'), 'utf8'), before);
+    const result = completeTask(dir, { force: true });
+    const moved = JSON.parse(fs.readFileSync(path.join(result.to, 'progress.json'), 'utf8'));
+    assert.equal(moved.histories.at(-1).data.forced, true);
+  });
+});
+
+test('移動先に同名のフォルダがあれば失敗する', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeProgress(tasksDir, '#44 同名', finishedHistories());
+    fs.mkdirSync(path.join(tasksDir, '_done', '#44 同名'), { recursive: true });
+    assert.throws(() => completeTask(dir), /同名/);
+    assert.equal(fs.existsSync(dir), true);
+  });
+});
+
+test('タスク置き場の直下でない、または progress.json の無いディレクトリは完了にできない', () => {
+  withTasksDir((root, tasksDir) => {
+    const nested = writeProgress(path.join(tasksDir, '_done'), '#45 完了済み', finishedHistories());
+    assert.throws(() => completeTask(nested), /直下/);
+    const memo = path.join(tasksDir, 'メモ置き場');
+    fs.mkdirSync(memo);
+    assert.throws(() => completeTask(memo), /progress\.json/);
   });
 });

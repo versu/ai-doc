@@ -31,7 +31,7 @@
 
 | 項目 | 型 | 意味 |
 |---|---|---|
-| `phase` | 文字列 | `"preparation"` / `"execution"` / `"done"` |
+| `phase` | 文字列 | `"preparation"`（合意前）/ `"execution"`（実装・レビュー中）/ `"pr-created"`（全タスクが終わり、PR のレビュー対応と完了の指示を待っている）/ `"done"`（ユーザーの指示で完了にした。`completion` がある） |
 | `currentTask` | 文字列/null | いま進めているタスクの `id`。分解していない、または進行中のタスクが無ければ `null` |
 | `updatedAt` | 文字列 | 最後に更新した日時（ISO 8601） |
 | `taskStates` | オブジェクト | タスクの `id` をキーにした進み具合。分解していなければ `main` の1件 |
@@ -90,6 +90,7 @@
 | `pull-request` | PR を作ったとき | `number`、`base` |
 | `pr-feedback` | PR の指摘への対応を始めるとき | `pullRequest`、`accepted`、`rejected` |
 | `push` | 既存の PR へ push したとき | `pullRequest`、`head` |
+| `completion` | ユーザーの指示でタスクを完了にしたとき（`complete` が追記する） | `forced`（`pr-created` になる前に完了にしたか） |
 
 ### `review` の `dispositions` と `unresolvedBlockers`
 
@@ -117,6 +118,7 @@ deferred: エラーメッセージの多言語化はスコープ外
 | `recompute --dir <dir>` | `histories` から `status` を作り直す |
 | `show --dir <dir>` | `status` と `tasks` を出力する。**再開時はこれだけ読む** |
 | `review-base --dir <dir> --task <id> [--repo <path>]` | 次のレビュー範囲の起点を git で検証して返す |
+| `complete --dir <dir> [--force]` | **タスクを完了にする。** `completion` を追記し、`.ai/_tasks/_done/` へ移す。`phase` が `pr-created` でなければ `--force` が要る。移動先に同名のフォルダがある、`.ai/_tasks/` の直下でない、などのときは**何も変えずに終了コード1** |
 
 ### `list` が返すもの
 

@@ -45,6 +45,7 @@ const SHAPES = {
   'pull-request': { number: 'number', base: 'string' },
   'pr-feedback': { pullRequest: 'number', accepted: 'array', rejected: 'array' },
   push: { pullRequest: 'number', head: 'string' },
+  completion: { forced: 'boolean' },
 };
 
 function typeError(errors, field, expected, value) {
@@ -252,7 +253,10 @@ export function computeStatus(doc, updatedAt) {
 
   const finished = Object.values(taskStates).every((t) => t.state === 'done' || t.state === 'stopped');
   const agreed = doc.histories.some((h) => h.kind === 'agreement');
-  const phase = !agreed ? 'preparation' : finished ? 'done' : 'execution';
+  // 全タスクが終わっても done にはしない。PR のレビュー対応が続くことがあるので、
+  // ユーザーが完了を指示した（completion がある）ときだけ done にする
+  const completed = doc.histories.some((h) => h.kind === 'completion');
+  const phase = completed ? 'done' : !agreed ? 'preparation' : finished ? 'pr-created' : 'execution';
 
   // 最後に扱ったタスク。タスクに属さない履歴（合意など）は読み飛ばす
   const lastKey = doc.tasks.length === 0
@@ -364,6 +368,49 @@ export function listTasks(cwd) {
   return { tasksDir, tasks, ignored: ignored.sort() };
 }
 
+/**
+ * タスクを完了にする。completion を追記して、タスクディレクトリを _done/ へ移す。
+ *
+ * 追記と移動を1つにまとめているのは、片方だけ行われて「done なのに一覧に残る」
+ * 「_done/ にあるのに done でない」といった食い違いを作らないため。
+ * 失敗したときは何も変えずに例外を投げる。
+ */
+export function completeTask(dir, { force = false } = {}) {
+  const from = path.resolve(dir);
+  const tasksDir = path.dirname(from);
+  if (!tasksDir.endsWith(`${path.sep}${TASKS_RELATIVE_PATH}`) || path.basename(from) === DONE_DIR) {
+    throw new Error(`.ai/_tasks/ の直下のタスクディレクトリを指定してください: ${from}`);
+  }
+  const file = progressPathOf(from);
+  if (!fs.existsSync(file)) throw new Error(`progress.json がありません（オーケストレーターのタスクではありません）: ${file}`);
+  let doc;
+  try {
+    doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(`progress.json を読めません: ${error.message}`);
+  }
+  const to = path.join(tasksDir, DONE_DIR, path.basename(from));
+  if (fs.existsSync(to)) throw new Error(`移動先に同名のフォルダがあります: ${to}`);
+  const phase = computeStatus(doc).phase;
+  if (phase !== 'pr-created' && !force) {
+    throw new Error(`phase が pr-created ではありません（現在: ${phase}）。それでも完了にするなら --force を付けてください`);
+  }
+
+  const original = fs.readFileSync(file, 'utf8');
+  doc.histories.push({ at: nowIso(), kind: 'completion', task: null, data: { forced: phase !== 'pr-created' } });
+  doc.status = computeStatus(doc);
+  writeDoc(from, doc);
+  try {
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.renameSync(from, to);
+  } catch (error) {
+    // 移動できなければ追記も取り消し、呼ぶ前の状態に戻す
+    fs.writeFileSync(file, original);
+    throw new Error(`_done/ へ移動できませんでした: ${error.message}`);
+  }
+  return { from, to, phase: doc.status.phase };
+}
+
 // --- サブコマンド ---------------------------------------------------------
 
 function parseArgs(argv) {
@@ -434,6 +481,16 @@ const COMMANDS = {
     const dir = requireDir(args);
     const doc = readDoc(dir);
     console.log(JSON.stringify({ status: doc.status, tasks: doc.tasks }, null, 2));
+  },
+
+  /** タスクを完了にして _done/ へ移す。phase が pr-created でなければ --force が要る。 */
+  complete(args) {
+    const dir = requireDir(args);
+    try {
+      console.log(JSON.stringify(completeTask(dir, { force: args.force === true }), null, 2));
+    } catch (error) {
+      fail(error.message);
+    }
   },
 
   /** 進行中のタスクを一覧する。どれを扱うかを選んでもらうために使う。 */

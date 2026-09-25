@@ -1,6 +1,6 @@
 ---
 name: coding-orchestrator
-description: 仕様の合意からタスクの実装・レビュー・Pull Request までを、実装エージェントとレビュアーエージェントを使って一気通貫で進めるオーケストレーター。「オーケストレーターで進めて」「この依頼を最後までやって」「仕様を決めて実装からPRまでお願い」のように、要件を渡して実装完了まで任せたいときに使用する。PRに付いたレビューコメントへの対応もこのスキルで行う。単にコードを1か所直すだけの依頼には使わない。
+description: 仕様の合意からタスクの実装・レビュー・Pull Request までを、実装エージェントとレビュアーエージェントを使って一気通貫で進めるオーケストレーター。「オーケストレーターで進めて」「この依頼を最後までやって」「仕様を決めて実装からPRまでお願い」のように、要件を渡して実装完了まで任せたいときに使用する。PRに付いたレビューコメントへの対応と、「タスクを完了にして」のようなタスク完了の指示もこのスキルで行う。単にコードを1か所直すだけの依頼には使わない。
 allowed-tools:
   - AskUserQuestion
   - Bash(node:*)
@@ -107,7 +107,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 |---|---|
 | `preparation` | 合意の途中で中断している。STEP 3 をやり直す |
 | `execution` | 下の表で再開位置を決めて STEP 4 へ |
-| `done` | PR の指摘対応なら STEP 6、別の依頼なら新しいタスクとして STEP 3 |
+| `pr-created` | PR 作成済みで、レビュー対応と完了の指示を待っている。PR の指摘対応なら STEP 6、完了の指示なら STEP 7、別の依頼なら新しいタスクとして STEP 3 |
 
 #### `execution` の再開位置
 
@@ -160,7 +160,8 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 
 1. `status.deferred` の一覧を提示する（先送りが静かに忘れられるのを防ぐ）
 2. 作った PR の一覧と、**マージは古い順**であることを伝える（積み上げのため）
-3. タスクディレクトリを `.ai/_tasks/_done/` へ移す
+3. **タスクディレクトリは移さない。** PR のレビュー対応（STEP 6）が続くことがあるため。
+   「レビュー対応が済んだら『タスクを完了にして』と伝えれば完了にする」と案内する
 
 ## STEP 6. PR の指摘に対応する
 
@@ -171,6 +172,24 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 - **レビューは1回だけ**、`mode` は常に `regression`
 - ブロッカーが出たら直して提示する。**再レビューはしない**
 - 最後は既存の PR へ **push**（新しい PR は作らない）
+
+## STEP 7. タスクを完了にする
+
+「タスクを完了にして」「クローズして」のように、**ユーザーが明示的に完了を指示したときだけ**入る。
+PR を作り終えた、マージされた、といった状況から自分で判断して完了にしない。
+
+1. STEP 2-1 と同じく `state.mjs list` で対象を選ぶ（依頼文から推測しない）
+2. `status.phase` が `pr-created` でなければ（実装やレビューが残っている）、
+   `AskUserQuestion` で「それでも完了にする」／「やめる」を聞く
+3. 次を実行する。2 で完了にすると合意した場合は `--force` を付ける
+
+   ```bash
+   node ${CLAUDE_SKILL_DIR}/scripts/state.mjs complete --dir "<タスクディレクトリ>"
+   ```
+
+   `completion` の追記と `.ai/_tasks/_done/` への移動を、このコマンドがまとめて行う。**自分でフォルダを移さない。**
+   失敗したら（移動先に同名のフォルダがある、など）何も変わっていないので、理由を伝えて止まる
+4. 移した先を伝える
 
 ---
 
@@ -194,6 +213,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 | STEP 4-3 | `roundCap` に達したとき | 「打ち切って次へ（推奨）」／「もう1周だけ回す」 |
 | STEP 4-4 | テストコマンド、画面の目視確認 | コマンドは候補を並べる。目視は「問題なかった」／「問題があった」 |
 | STEP 6 | どの指摘に対応するか | 指摘ごとに「対応する」／「対応しない」 |
+| STEP 7 | `pr-created` でないタスクを完了にしてよいか | 「それでも完了にする」／「やめる」 |
 
 **選択肢を自分で選んで進めない。** 推奨案を示すのはよいが、決めるのはユーザー。
 
@@ -209,7 +229,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/scripts/state.mjs list
-node ${CLAUDE_SKILL_DIR}/scripts/state.mjs <init|append|recompute|show|review-base> --dir "<タスクディレクトリ>"
+node ${CLAUDE_SKILL_DIR}/scripts/state.mjs <init|append|recompute|show|review-base|complete> --dir "<タスクディレクトリ>"
 ```
 
 `append` は戻り値の形を契約に照らして検証し、合わなければ**書き込まずに終了コード1**を返す。
