@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { defaults, mergeConfig, resolveDocPath, loadConfig, CONFIG_RELATIVE_PATH } from './config.mjs';
+import { defaults, initialConfig, mergeConfig, resolveDocPath, loadConfig, CONFIG_RELATIVE_PATH } from './config.mjs';
 
 function withRepo(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestration-'));
@@ -81,7 +81,8 @@ test('存在しない docs は missingDocs に入るが、読み込み自体は�
     fs.writeFileSync(path.join(dir, 'docs/ある.md'), '# ある');
     const result = loadConfig(dir);
     assert.equal(result.ok, true);
-    assert.deepEqual(result.missingDocs, ['docs/ない.md']);
+    assert.ok(result.missingDocs.includes('docs/ない.md'));
+    assert.ok(!result.missingDocs.includes('docs/ある.md'));
     assert.equal(result.implementation.docs.find((d) => d.path === 'docs/ある.md').exists, true);
   });
 });
@@ -129,6 +130,29 @@ test('PR のテンプレートと規約はリポジトリルートを起点に�
     assert.equal(result.pullRequest.template.resolved, path.join(dir, 'docs/pr-template.md'));
     assert.equal(result.pullRequest.template.exists, false);
     assert.equal(result.pullRequest.docs[0].exists, true);
-    assert.deepEqual(result.missingDocs, ['docs/pr-template.md']);
+    assert.ok(result.missingDocs.includes('docs/pr-template.md'));
+    assert.ok(!result.missingDocs.includes('docs/pr-rule.md'));
   });
+});
+
+test('implementation.docs と review.docs は既定に追加する（上書きしない）', () => {
+  const base = defaults();
+  const { config, errors } = mergeConfig({ implementation: { docs: ['docs/php.md'] }, review: { docs: ['docs/review.md'] } });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(config.implementation.docs, [...base.implementation.docs, 'docs/php.md']);
+  assert.deepEqual(config.review.docs, [...base.review.docs, 'docs/review.md']);
+});
+
+test('既定と同じ規約を書いても二重にならない', () => {
+  const base = defaults();
+  const { config } = mergeConfig({ implementation: { docs: [...base.implementation.docs, 'docs/php.md'] } });
+  assert.deepEqual(config.implementation.docs, [...base.implementation.docs, 'docs/php.md']);
+});
+
+test('init の雛形は docs を空にし、それ以外は既定値のまま', () => {
+  const content = initialConfig();
+  assert.deepEqual(content.implementation.docs, []);
+  assert.deepEqual(content.review.docs, []);
+  assert.equal(content.review.roundCap, defaults().review.roundCap);
+  assert.ok(defaults().implementation.docs.length > 0);
 });

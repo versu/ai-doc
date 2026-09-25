@@ -32,6 +32,17 @@ export function defaults() {
   return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf8'));
 }
 
+/**
+ * init が書き出す雛形。implementation.docs / review.docs は既定に追加される項目なので空にしておく。
+ * 既定の規約を並べると、現場で足した規約との区別がつかなくなるため。
+ */
+export function initialConfig() {
+  const content = defaults();
+  content.implementation.docs = [];
+  content.review.docs = [];
+  return content;
+}
+
 export function repoRootOf(cwd) {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim();
@@ -71,6 +82,10 @@ export function mergeConfig(raw, base = defaults()) {
         errors.push(`${section}.${key}: 配列を指定してください（現在: ${JSON.stringify(merged[section][key])}）`);
       }
     }
+    // docs だけは上書きせず既定に追加する。共通の規約を読ませたまま、現場の規約を足せるようにするため
+    if (Array.isArray(merged[section].docs)) {
+      merged[section].docs = [...new Set([...base[section].docs, ...merged[section].docs])];
+    }
   }
   const { template } = merged.pullRequest;
   if (template !== null && typeof template !== 'string') {
@@ -101,7 +116,7 @@ export function loadConfig(cwd) {
       configPath,
       // 作成コマンドをそのまま貼れる形で返す。スキル側で組み立て直させない
       initCommand: `node ${path.join(HERE, 'config.mjs')} init`,
-      message: `設定ファイルがありません: ${configPath}\n次を実行して作成し、docs を現場の規約ファイルに直してから、もう一度呼んでください。\n  node ${path.join(HERE, 'config.mjs')} init`,
+      message: `設定ファイルがありません: ${configPath}\n次を実行して作成し、docs に現場の規約ファイルを追加してから、もう一度呼んでください。\n  node ${path.join(HERE, 'config.mjs')} init`,
     };
   }
 
@@ -159,7 +174,7 @@ function parseArgs(argv) {
 }
 
 const COMMANDS = {
-  /** 雛形をコピーする。既にあれば上書きせず、現在の内容を見せる。 */
+  /** 雛形を書き出す。既にあれば上書きせず、現在の内容を見せる。 */
   init(args) {
     const repoRoot = repoRootOf(args.repo ?? process.cwd());
     const configPath = path.join(repoRoot, CONFIG_RELATIVE_PATH);
@@ -167,9 +182,10 @@ const COMMANDS = {
       console.log(JSON.stringify({ created: false, reason: 'already-exists', configPath, content: JSON.parse(fs.readFileSync(configPath, 'utf8')) }, null, 2));
       return;
     }
+    const content = initialConfig();
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.copyFileSync(DEFAULT_CONFIG_PATH, configPath);
-    console.log(JSON.stringify({ created: true, configPath, content: defaults() }, null, 2));
+    fs.writeFileSync(configPath, `${JSON.stringify(content, null, 2)}\n`);
+    console.log(JSON.stringify({ created: true, configPath, content }, null, 2));
   },
 
   /** 解決済みの設定を返す。インラインシェルから呼ばれるため常に終了コード0。 */

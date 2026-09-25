@@ -76,25 +76,53 @@ node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs init
 `<ai-doc>` は ai-doc をクローンしたフォルダのパス。
 設定が無い状態でオーケストレーターを呼んでも、このコマンドが案内される。
 
-作ったら、`implementation.docs` と `review.docs` を、そのプロジェクトの規約ファイルに合わせて直す。
-既定では `.ai/_docs/`（`aidoc install` が作る、ai-doc の共通規約へのリンク）の規約が並んでいる。
+作ったら、`implementation.docs` と `review.docs` に、そのプロジェクトの規約ファイルを追加する。
+`.ai/_docs/`（`aidoc install` が作る、ai-doc の共通規約へのリンク）の規約は既定で読まれるので、書かなくてよい（下の「既定の規約」を参照）。
 
 **設定ファイルが無いと、オーケストレーターは起動しない。**
 設定の中身は「このプロジェクトでどの規約を読ませるか」そのもので、既定値のまま進むと、プロジェクトの規約が読まれないまま実装とレビューが終わってしまうため。
 
 ## 設定項目
 
-| 項目 | 既定値 | 意味 |
+「設定したとき」は、キーを書いた場合に既定値とどう組み合わさるか。**上書き**は書いた値だけが使われ、**既定に追加**は既定の値に書いた値が足される。
+
+| 項目 | 既定値 | 設定したとき | 意味 |
+|---|---|---|---|
+| `orchestrator.createIssue` | `"ask"` | 上書き | 仕様の合意後に Issue を起票するか。`"ask"` はその都度聞く。`true` / `false` で固定できる |
+| `orchestrator.createPullRequest` | `"ask"` | 上書き | タスクが1つ終わるたびに PR を作るか。値の意味は `createIssue` と同じ |
+| `implementation.docs` | 下の「既定の規約」 | **既定に追加** | 実装エージェントが着手前に必ず読む規約 |
+| `implementation.skills` | なし | 上書き | 実装エージェントに使わせるスキル |
+| `review.docs` | 下の「既定の規約」 | **既定に追加** | レビュアーエージェントが読む規約。これがレビューの基準になる |
+| `review.skills` | なし | 上書き | レビュアーエージェントに使わせるスキル |
+| `review.roundCap` | `3` | 上書き | 1タスクあたりのラウンドの上限 |
+| `pullRequest.template` | なし（PR 作成スキルの既定のテンプレート） | 上書き | PR 本文のテンプレート |
+| `pullRequest.docs` | なし | 上書き | PR を書く前に読ませる規約。PR 作成スキルの既定の書き方に追加で読ませ、食い違えばこちらを優先する |
+
+### 既定の規約
+
+`implementation.docs` と `review.docs` には、設定に何を書いても次の規約が含まれる。
+設定に書いた規約は、この後ろに足される。同じファイルを書いても二重には読まれない。
+
+| ファイル | 内容 | 実装（`implementation.docs`） | レビュー（`review.docs`） |
+|---|---|---|---|
+| `.ai/_docs/coding.md` | コーディングガイドライン | ○ | ○ |
+| `.ai/_docs/comment.md` | コメント記載ガイドライン | ○ | ○ |
+| `.ai/_docs/error-handling.md` | エラーハンドリングガイドライン | ○ | ○ |
+| `.ai/_docs/git-commit-comment.md` | コミットメッセージの書式 | ○ | — |
+
+たとえば PHP のプロジェクトで言語別の規約も読ませたい場合は、次のように足す。
+
+```json
+"implementation": { "docs": [".ai/_docs/php-coding.md"] },
+"review": { "docs": [".ai/_docs/php-coding.md"] }
+```
+
+PR を作るときは、上とは別に PR 作成スキルが自分の既定を使う。
+
+| 用途 | 既定 | 設定との関係 |
 |---|---|---|
-| `orchestrator.createIssue` | `"ask"` | 仕様の合意後に Issue を起票するか。`"ask"` はその都度聞く。`true` / `false` で固定できる |
-| `orchestrator.createPullRequest` | `"ask"` | タスクが1つ終わるたびに PR を作るか。値の意味は `createIssue` と同じ |
-| `implementation.docs` | `.ai/_docs/` のコーディング規約・コメント規約・エラー処理規約・コミットメッセージ規約 | 実装エージェントが着手前に必ず読む規約 |
-| `implementation.skills` | なし | 実装エージェントに使わせるスキル |
-| `review.docs` | `.ai/_docs/` のコーディング規約・コメント規約・エラー処理規約 | レビュアーエージェントが読む規約。これがレビューの基準になる |
-| `review.skills` | なし | レビュアーエージェントに使わせるスキル |
-| `review.roundCap` | `3` | 1タスクあたりのラウンドの上限 |
-| `pullRequest.template` | `null`（既定のテンプレート） | PR 本文のテンプレート |
-| `pullRequest.docs` | なし | PR を書く前に読ませる規約。既定の書き方に追加で読ませ、食い違えばこちらを優先する |
+| PR 本文のテンプレート | [create-gh-pr/references/pr-template.md](../../plugins/core/skills/create-gh-pr/references/pr-template.md) | `pullRequest.template` を設定すると置き換わる |
+| PR の書き方の規約 | [create-gh-pr/references/pr-writing.md](../../plugins/core/skills/create-gh-pr/references/pr-writing.md) | 常に読まれる。`pullRequest.docs` はこれに追加で読まれる |
 
 プロジェクトで決まった PR テンプレートや書き方の規約がある場合は、次のように指定する。
 

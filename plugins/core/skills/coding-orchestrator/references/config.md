@@ -16,19 +16,35 @@
 
 ## 設定項目
 
-| 項目 | 型 | 取りうる値 | 既定値 | 意味 |
-|---|---|---|---|---|
-| `orchestrator.createIssue` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | 準備フェーズの合意後に Issue を起票するか。`"ask"` はその都度確認する |
-| `orchestrator.createPullRequest` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | タスクが1つ終わるたびに PR を作るか |
-| `implementation.skills` | 文字列の配列 | スキル名 | `[]` | 実装エージェントに使わせるスキル |
-| `implementation.docs` | 文字列の配列 | パス | 下記 | 実装エージェントが着手前に必ず読むドキュメント |
-| `review.skills` | 文字列の配列 | スキル名 | `[]` | レビュアーエージェントに使わせるスキル |
-| `review.docs` | 文字列の配列 | パス | 下記 | レビュアーエージェントがレビュー前に必ず読むドキュメント。これがレビュー基準になる |
-| `review.roundCap` | 整数 | 1 以上 | `3` | 1タスクあたりのレビュー回数の上限 |
-| `pullRequest.template` | 文字列/null | パス | `null` | PR 本文のテンプレート。`null` なら PR 作成スキルの既定のテンプレートを使う |
-| `pullRequest.docs` | 文字列の配列 | パス | `[]` | PR を書く前に読ませる規約。PR 作成スキルの既定の書き方に**追加で**読ませ、食い違えばこちらを優先する |
+「設定したとき」は、キーを書いた場合に既定値とどう組み合わさるか。
+
+| 項目 | 型 | 取りうる値 | 既定値 | 設定したとき | 意味 |
+|---|---|---|---|---|---|
+| `orchestrator.createIssue` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | 上書き | 準備フェーズの合意後に Issue を起票するか。`"ask"` はその都度確認する |
+| `orchestrator.createPullRequest` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | 上書き | タスクが1つ終わるたびに PR を作るか |
+| `implementation.skills` | 文字列の配列 | スキル名 | `[]` | 上書き | 実装エージェントに使わせるスキル |
+| `implementation.docs` | 文字列の配列 | パス | 下記「既定の規約」 | **既定に追加** | 実装エージェントが着手前に必ず読むドキュメント |
+| `review.skills` | 文字列の配列 | スキル名 | `[]` | 上書き | レビュアーエージェントに使わせるスキル |
+| `review.docs` | 文字列の配列 | パス | 下記「既定の規約」 | **既定に追加** | レビュアーエージェントがレビュー前に必ず読むドキュメント。これがレビュー基準になる |
+| `review.roundCap` | 整数 | 1 以上 | `3` | 上書き | 1タスクあたりのレビュー回数の上限 |
+| `pullRequest.template` | 文字列/null | パス | `null` | 上書き | PR 本文のテンプレート。`null` なら PR 作成スキルの既定のテンプレート（`create-gh-pr/references/pr-template.md`）を使う |
+| `pullRequest.docs` | 文字列の配列 | パス | `[]` | 上書き（既定は空） | PR を書く前に読ませる規約。PR 作成スキルが常に読む `create-gh-pr/references/pr-writing.md` に**追加で**読ませ、食い違えばこちらを優先する |
 
 既定値は [orchestration.default.json](orchestration.default.json) が正本。
+
+### 既定の規約
+
+`implementation.docs` と `review.docs` は、設定ファイルに何を書いても次の規約を必ず含む。
+設定に書いたものは、この後ろに足される（同じパスを書いても二重にはならない）。既定の規約を外す手段は無い。
+
+| ファイル | 内容 | `implementation.docs` | `review.docs` |
+|---|---|---|---|
+| `.ai/_docs/coding.md` | コーディングガイドライン | ○ | ○ |
+| `.ai/_docs/comment.md` | コメント記載ガイドライン | ○ | ○ |
+| `.ai/_docs/error-handling.md` | エラーハンドリングガイドライン | ○ | ○ |
+| `.ai/_docs/git-commit-comment.md` | コミットメッセージの書式 | ○ | — |
+
+`config.mjs init` が作る設定ファイルでは、この2項目を空の配列にしてある。現場で足した規約だけが並ぶようにするため。
 
 ## パスの書き方と解決の起点
 
