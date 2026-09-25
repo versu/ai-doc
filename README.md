@@ -30,6 +30,8 @@ ai-doc/
 | `/core:create-gh-issue` | GitHub Issue を作る（サブ Issue にも対応） |
 | `/core:create-gh-pr` | Pull Request を作る |
 | `/core:commit` | 今回の修正をコミット規約に沿ってコミットする |
+| `/core:technical-writing` | 技術記事・設計書・README・手順書などを、テクニカルライティング規約に沿って書く |
+| `/core:technical-writing-review` | 技術文書をテクニカルライティング規約に照らしてレビューし、指摘と修正案を返す |
 
 ### オーケストレーターを使うとき
 
