@@ -14,7 +14,7 @@ ai-doc/
 │       ├── skills/<スキル名>/SKILL.md
 │       ├── agents/<エージェント名>.md
 │       └── _docs/                    スキル横断で使うガイド（導入先へ配るもの）
-├── docs/                             このリポジトリ自体の運用ドキュメント
+├── docs/                             このリポジトリ自体の運用ドキュメントと、スキルの利用ガイド
 └── src/                              aidoc コマンド（入口は src/aidoc.js）
 ```
 
@@ -25,26 +25,13 @@ ai-doc/
 
 | スキル | 何をするか |
 |---|---|
-| `/core:coding-orchestrator` | 仕様の合意から実装・レビュー・PR までを一気通貫で進める。実装とレビューは専用のエージェントに任せ、メインセッションは段取りと裁定に徹する |
+| `/core:coding-orchestrator` | 仕様の合意から実装・レビュー・PR までを一気通貫で進める。実装とレビューは専用のエージェントに任せ、メインセッションは段取りと裁定に徹する。**使う前にプロジェクトごとの設定が必要**。使い方は [docs/coding-orchestrator/README.md](docs/coding-orchestrator/README.md) |
 | `/core:prepare-branch` | base ブランチを確定・最新化して作業ブランチを切る |
 | `/core:create-gh-issue` | GitHub Issue を作る（サブ Issue にも対応） |
 | `/core:create-gh-pr` | Pull Request を作る |
 | `/core:commit` | 今回の修正をコミット規約に沿ってコミットする |
 | `/core:technical-writing` | 技術記事・設計書・README・手順書などを、テクニカルライティング規約に沿って書く |
 | `/core:technical-writing-review` | 技術文書をテクニカルライティング規約に照らしてレビューし、指摘と修正案を返す |
-
-### オーケストレーターを使うとき
-
-プロジェクトごとに、最初に一度だけ設定ファイルを作る。
-作成用のコマンドは、設定が無い状態でオーケストレーターを呼べば案内される。
-
-```bash
-node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs init
-```
-
-`.ai/orchestration.json` が作られるので、`implementation.docs` と `review.docs` を
-その現場の規約ファイルに合わせて直してから使う。
-**設定ファイルが無い状態では起動しない**（現場の規約が読まれないまま実装が進むのを防ぐため）。
 
 プラグインの定義方針（marketplace.json の記載項目、外部プラグインの扱い）は [docs/plugin-management.md](docs/plugin-management.md) にまとめています。
 
