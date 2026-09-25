@@ -20,5 +20,9 @@
       ".ai/_docs/error-handling.md"
     ],
     "roundCap": 3
+  },
+  "pullRequest": {
+    "template": null,
+    "docs": []
   }
 }

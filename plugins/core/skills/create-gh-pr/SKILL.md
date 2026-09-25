@@ -22,6 +22,8 @@ allowed-tools:
 | 宛先（base）ブランチ | リポジトリの既定ブランチ。**積み上げ（stacked PR）では直前のタスクのブランチ**になるので、呼び出し側の指定に従う |
 | タイトル | 本文から起こして確認する |
 | 本文（または spec と Issue 番号） | spec と直近のコミットから組み立てる |
+| 本文のテンプレート（ファイルのパス） | [references/pr-template.md](references/pr-template.md) |
+| 追加の規約（ファイルのパスの配列） | なし（[references/pr-writing.md](references/pr-writing.md) だけを守る） |
 | draft か否か | draft にしない |
 | 担当者 | **自分（`@me`）。** 空だとレビュー待ちの一覧で誰が面倒を見るのか分からなくなる |
 
@@ -39,8 +41,12 @@ git log --oneline <base>..HEAD    # コミットが1つ以上あること
 
 ### 2. 本文を組み立てる
 
-[references/pr-template.md](references/pr-template.md) の構成に従い、
+本文のテンプレート（渡されなければ [references/pr-template.md](references/pr-template.md)）の構成に従い、
 [references/pr-writing.md](references/pr-writing.md) の書き方を守る。
+
+- 渡されたテンプレートは**本文の構成**として使う。タイトルはテンプレートに無くても別に起こす
+- 追加の規約が渡されたら、`pr-writing.md` に加えてそれも読んで守る。**食い違ったら追加の規約を優先する**
+  （プロジェクトごとの決まりのほうが、ここにある一般的な基準より具体的なため）
 
 ### 3. 内容を提示して合意を取る
 

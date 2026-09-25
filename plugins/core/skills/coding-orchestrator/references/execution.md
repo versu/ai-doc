@@ -109,6 +109,13 @@ Follow-up は毎ラウンド `follow-up:` として記録し、**その場では
 設定 `orchestrator.createPullRequest` に従う（`"ask"` なら `AskUserQuestion` でここで聞く）。
 
 PR 作成スキルを呼ぶ。**宛先は base ブランチ**（積み上げなら直前のタスクのブランチ）。
+起動時点の設定の `pullRequest` から、次も渡す。
+
+| 渡すもの | 設定から取る値 |
+|---|---|
+| 本文のテンプレート | `pullRequest.template` が null でなく `exists` が true のときの `resolved`。それ以外は渡さない（PR 作成スキルの既定を使う） |
+| 追加の規約 | `pullRequest.docs` のうち `exists` が true のものの `resolved` |
+
 作成したら `pull-request` の履歴を追記する。
 
 ## 全タスク完了後

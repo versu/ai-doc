@@ -137,7 +137,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 | 4-2 | 実装エージェントを新規起動。**返ってきたエージェント ID を履歴に残す** |
 | 4-3 | **`state.mjs review-base` を実行**して範囲を決め、レビュアーを**毎回新規起動**。裁定して `review` を追記 |
 | 4-4 | 区切りの確認。テストを流し、画面を作ったなら `AskUserQuestion` で目視確認を依頼する |
-| 4-5 | PR 作成（設定に従う）。**宛先は base ブランチ**。`pull-request` を追記 |
+| 4-5 | PR 作成（設定に従う）。**宛先は base ブランチ**。テンプレートと規約は設定の `pullRequest` から渡す。`pull-request` を追記 |
 
 ### 4-3 のループの抜け方
 

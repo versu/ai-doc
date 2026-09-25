@@ -57,6 +57,7 @@ export function mergeConfig(raw, base = defaults()) {
     orchestrator: { ...base.orchestrator, ...(raw.orchestrator ?? {}) },
     implementation: { ...base.implementation, ...(raw.implementation ?? {}) },
     review: { ...base.review, ...(raw.review ?? {}) },
+    pullRequest: { ...base.pullRequest, ...(raw.pullRequest ?? {}) },
   };
 
   for (const key of ['createIssue', 'createPullRequest']) {
@@ -70,6 +71,13 @@ export function mergeConfig(raw, base = defaults()) {
         errors.push(`${section}.${key}: 配列を指定してください（現在: ${JSON.stringify(merged[section][key])}）`);
       }
     }
+  }
+  const { template } = merged.pullRequest;
+  if (template !== null && typeof template !== 'string') {
+    errors.push(`pullRequest.template: ファイルのパスか null を指定してください（現在: ${JSON.stringify(template)}）`);
+  }
+  if (!Array.isArray(merged.pullRequest.docs)) {
+    errors.push(`pullRequest.docs: 配列を指定してください（現在: ${JSON.stringify(merged.pullRequest.docs)}）`);
   }
   if (!Number.isInteger(merged.review.roundCap) || merged.review.roundCap < 1) {
     errors.push(`review.roundCap: 1 以上の整数を指定してください（現在: ${JSON.stringify(merged.review.roundCap)}）`);
@@ -109,16 +117,21 @@ export function loadConfig(cwd) {
     return { ok: false, reason: 'invalid-value', configPath, message: errors.join('\n'), errors };
   }
 
-  const resolveDocs = (docs) =>
-    docs.map((d) => {
-      const resolved = resolveDocPath(d, repoRoot);
-      return { path: d, resolved, exists: fs.existsSync(resolved) };
-    });
+  const resolveDoc = (d) => {
+    const resolved = resolveDocPath(d, repoRoot);
+    return { path: d, resolved, exists: fs.existsSync(resolved) };
+  };
+  const resolveDocs = (docs) => docs.map(resolveDoc);
 
   const implementationDocs = resolveDocs(config.implementation.docs);
   const reviewDocs = resolveDocs(config.review.docs);
+  const pullRequestDocs = resolveDocs(config.pullRequest.docs);
+  // 未設定（null）なら PR 作成スキルの既定テンプレートを使う
+  const pullRequestTemplate = config.pullRequest.template === null ? null : resolveDoc(config.pullRequest.template);
   // 現場によって規約ファイルの有無は変わる。ここで止めると使い物にならないので、警告にとどめる
-  const missingDocs = [...implementationDocs, ...reviewDocs].filter((d) => !d.exists).map((d) => d.path);
+  const missingDocs = [...implementationDocs, ...reviewDocs, ...pullRequestDocs, ...(pullRequestTemplate ? [pullRequestTemplate] : [])]
+    .filter((d) => !d.exists)
+    .map((d) => d.path);
 
   return {
     ok: true,
@@ -127,6 +140,7 @@ export function loadConfig(cwd) {
     orchestrator: config.orchestrator,
     implementation: { skills: config.implementation.skills, docs: implementationDocs },
     review: { skills: config.review.skills, docs: reviewDocs, roundCap: config.review.roundCap },
+    pullRequest: { template: pullRequestTemplate, docs: pullRequestDocs },
     missingDocs: [...new Set(missingDocs)],
   };
 }

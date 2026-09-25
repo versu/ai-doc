@@ -93,6 +93,17 @@ node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs init
 | `review.docs` | `.ai/_docs/` のコーディング規約・コメント規約・エラー処理規約 | レビュアーエージェントが読む規約。これがレビューの基準になる |
 | `review.skills` | なし | レビュアーエージェントに使わせるスキル |
 | `review.roundCap` | `3` | 1タスクあたりのラウンドの上限 |
+| `pullRequest.template` | `null`（既定のテンプレート） | PR 本文のテンプレート |
+| `pullRequest.docs` | なし | PR を書く前に読ませる規約。既定の書き方に追加で読ませ、食い違えばこちらを優先する |
+
+プロジェクトで決まった PR テンプレートや書き方の規約がある場合は、次のように指定する。
+
+```json
+"pullRequest": {
+  "template": ".github/pull_request_template.md",
+  "docs": ["docs/pr-guideline.md"]
+}
+```
 
 - パスは**リポジトリのルートからの相対パス**で書く。サブフォルダから Claude Code を起動しても同じファイルを指す
 - 書いたパスにファイルが無い場合は、警告を出してそのファイルだけ読み飛ばす

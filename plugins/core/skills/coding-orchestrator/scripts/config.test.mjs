@@ -94,3 +94,41 @@ test('値が不正なら ok:false で止める（既定値で握りつぶさな�
     assert.equal(result.reason, 'invalid-value');
   });
 });
+
+test('PR のテンプレートと規約は未設定なら null と空配列になる', () => {
+  withRepo((dir) => {
+    writeConfig(dir, { implementation: { docs: [] }, review: { docs: [] } });
+    const result = loadConfig(dir);
+    assert.equal(result.ok, true);
+    assert.equal(result.pullRequest.template, null);
+    assert.deepEqual(result.pullRequest.docs, []);
+  });
+});
+
+test('PR のテンプレートにパスか null 以外が入っていれば弾く', () => {
+  const { errors } = mergeConfig({ pullRequest: { template: 1 } });
+  assert.ok(errors.some((e) => e.includes('pullRequest.template')));
+});
+
+test('PR の規約が配列でなければ弾く', () => {
+  const { errors } = mergeConfig({ pullRequest: { docs: 'docs/pr.md' } });
+  assert.ok(errors.some((e) => e.includes('pullRequest.docs')));
+});
+
+test('PR のテンプレートと規約はリポジトリルートを起点に解決し、無いものは missingDocs に入れる', () => {
+  withRepo((dir) => {
+    writeConfig(dir, {
+      implementation: { docs: [] },
+      review: { docs: [] },
+      pullRequest: { template: 'docs/pr-template.md', docs: ['docs/pr-rule.md'] },
+    });
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs/pr-rule.md'), '# 規約');
+    const result = loadConfig(dir);
+    assert.equal(result.ok, true);
+    assert.equal(result.pullRequest.template.resolved, path.join(dir, 'docs/pr-template.md'));
+    assert.equal(result.pullRequest.template.exists, false);
+    assert.equal(result.pullRequest.docs[0].exists, true);
+    assert.deepEqual(result.missingDocs, ['docs/pr-template.md']);
+  });
+});
