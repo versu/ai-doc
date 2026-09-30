@@ -36,6 +36,9 @@ gh --version        # 親 Issue の番号が渡されたときだけ。サブ Is
 ### 2. 本文を組み立てる
 
 [references/issue-template.md](references/issue-template.md) に従う。
+文章はテクニカルライティング規約に沿って書く。
+
+@${CLAUDE_SKILL_DIR}/../../_docs/technical-writing.md
 
 ### 3. 内容を提示して合意を取る
 
