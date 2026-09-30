@@ -8,6 +8,9 @@ allowed-tools:
   - Bash(gh pr create:*)
   - Bash(gh pr view:*)
   - Bash(git push:*)
+  - Bash(git fetch:*)
+  - Bash(git merge-base:*)
+  - Bash(git rebase:*)
   - Bash(git status:*)
   - Bash(git log:*)
   - Bash(git rev-parse:*)
@@ -60,16 +63,36 @@ git log --oneline <base>..HEAD    # コミットが1つ以上あること
 書き出した場合は**ファイルの現在の内容**をそのまま使う。提示したときの内容を使い回さない
 （編集を取りこぼすため）。**1行目の `# ` 見出しをタイトル**、それ以降を本文として扱う。
 
-### 4. 作業ブランチを push する
+### 4. base を最新化し、作業ブランチを rebase する
+
+base に更新があれば、取り込んでから push する。
+古い base のまま PR を出すと、他の変更との競合がレビューのあとまで見つからないため。
+
+```bash
+git rev-parse --abbrev-ref <base>@{upstream}   # 上流が無ければ失敗する。そのときはこの手順を飛ばす
+git fetch origin <base>:<base>                  # base を早送りで最新化する
+git merge-base --is-ancestor <base> HEAD        # 成功すれば更新は取り込み済みなので、rebase しない
+git rebase <base>
+```
+
+- 上流が無い base（積み上げで、直前のタスクのブランチがまだ push されていない場合）は最新化しない
+- 作業ブランチが既にリモートにある（`git rev-parse --abbrev-ref HEAD@{upstream}` が成功する）場合は、
+  rebase すると force push が必要になる。rebase する前に `AskUserQuestion` で、
+  rebase して push するか、rebase せずに進めるかを選んでもらう
+- rebase で競合したら、`git rebase --abort` で元に戻して止まる。競合の解き方はコードの意図に関わるため、人が判断する
+
+### 5. 作業ブランチを push する
 
 ```bash
 git push -u origin HEAD
 ```
 
+手順4で、リモートにある作業ブランチを rebase した場合だけ `git push --force-with-lease -u origin HEAD` にする。
+
 **合意が取れてから push する。** 先に push すると、内容を見たユーザーが
 「やっぱりやめる」と言ったときに、リモートに中途半端なブランチだけが残る。
 
-### 5. 作成する
+### 6. 作成する
 
 ```bash
 gh pr create --base <宛先ブランチ> --title "<タイトル>" --body-file <path> --assignee "@me"
@@ -84,8 +107,11 @@ gh pr create --base <宛先ブランチ> --title "<タイトル>" --body-file <p
 | `gh` が未認証 | 作れないため |
 | 未コミットの変更がある | PR の差分に入らない変更が手元に残るため |
 | `<base>..HEAD` にコミットが無い | 空の PR になるため |
+| base を早送りで最新化できない | ローカルの base がリモートと分岐している。人が判断すべき状況のため |
+| rebase で競合した | 競合の解き方はコードの意図に関わるため |
 | push できない | 合意のあとに push するので、ここで止まったら PR は作らない |
 
 ## 返すもの
 
 作成した PR の番号。宛先が既定ブランチでない場合は、**マージ順**もあわせて伝える。
+手順4で rebase した場合は、その旨も伝える。rebase 前に流したテストの結果は、rebase 後のコードには当てはまらないため。
