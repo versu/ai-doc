@@ -148,7 +148,7 @@ export function loadConfig(cwd) {
       configPath,
       // 作成コマンドをそのまま貼れる形で返す。スキル側で組み立て直させない
       initCommand: `node ${path.join(HERE, 'config.mjs')} init`,
-      message: `設定ファイルがありません: ${configPath}\n次を実行して作成し、docs に現場の規約ファイルを追加してから、もう一度呼んでください。\n  node ${path.join(HERE, 'config.mjs')} init`,
+      message: `設定ファイルがありません: ${configPath}\n次を実行して作成し、docs に現場の規約ファイルを追加してから、もう一度呼んでください。\n  node ${path.join(HERE, 'config.mjs')} init\n（aidoc を npm link 済みなら aidoc orchestrator init でも作れます）`,
     };
   }
 
@@ -218,6 +218,18 @@ export function loadConfig(cwd) {
   };
 }
 
+/** 雛形を書き出す。既にあれば上書きせず、現在の内容を返す。 */
+export function createConfig(cwd) {
+  const configPath = path.join(repoRootOf(cwd), CONFIG_RELATIVE_PATH);
+  if (fs.existsSync(configPath)) {
+    return { created: false, reason: 'already-exists', configPath, content: JSON.parse(fs.readFileSync(configPath, 'utf8')) };
+  }
+  const content = initialConfig();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(content, null, 2)}\n`);
+  return { created: true, configPath, content };
+}
+
 // --- サブコマンド ---------------------------------------------------------
 
 function parseArgs(argv) {
@@ -234,16 +246,7 @@ function parseArgs(argv) {
 const COMMANDS = {
   /** 雛形を書き出す。既にあれば上書きせず、現在の内容を見せる。 */
   init(args) {
-    const repoRoot = repoRootOf(args.repo ?? process.cwd());
-    const configPath = path.join(repoRoot, CONFIG_RELATIVE_PATH);
-    if (fs.existsSync(configPath)) {
-      console.log(JSON.stringify({ created: false, reason: 'already-exists', configPath, content: JSON.parse(fs.readFileSync(configPath, 'utf8')) }, null, 2));
-      return;
-    }
-    const content = initialConfig();
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, `${JSON.stringify(content, null, 2)}\n`);
-    console.log(JSON.stringify({ created: true, configPath, content }, null, 2));
+    console.log(JSON.stringify(createConfig(args.repo ?? process.cwd()), null, 2));
   },
 
   /** 解決済みの設定を返す。インラインシェルから呼ばれるため常に終了コード0。 */

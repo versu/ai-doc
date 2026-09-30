@@ -70,11 +70,11 @@
 プロジェクトのルートで次を実行し、設定ファイル `.ai/orchestration.json` を作る。
 
 ```bash
-node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs init
+aidoc orchestrator init
 ```
 
-`<ai-doc>` は ai-doc をクローンしたフォルダのパス。
-設定が無い状態でオーケストレーターを呼んでも、このコマンドが案内される。
+`npm link` していない場合は `node <ai-doc>/src/aidoc.js orchestrator init`（`<ai-doc>` は ai-doc をクローンしたフォルダのパス）。
+設定が無い状態でオーケストレーターを呼んでも、作成コマンドが案内される。
 
 作ったら、`implementation.docs` と `review.docs` に、そのプロジェクトの規約ファイルを追加する。
 `.ai/_docs/`（`aidoc install` が作る、ai-doc の共通規約へのリンク）の規約は既定で読まれるので、書かなくてよい（下の「既定の規約」を参照）。
@@ -140,10 +140,10 @@ PR を作るときは、上とは別に PR 作成スキルが自分の既定を�
 ### 設定の検証
 
 オーケストレーターは起動するとまず設定ファイルを検証し、問題があれば理由をすべて示して止まる。
-設定を直したあとは、次のコマンドで同じ検証を自分で確かめられる。問題が無ければ終了コード0で `"ok": true` を返す。
+設定を直したあとは、次のコマンドで同じ検証を自分で確かめられる。問題が無ければ終了コード0、あれば理由をすべて示して終了コード1で終わる。
 
 ```bash
-node <ai-doc>/plugins/core/skills/coding-orchestrator/scripts/config.mjs check
+aidoc orchestrator check
 ```
 
 止まるのは次のようなとき。

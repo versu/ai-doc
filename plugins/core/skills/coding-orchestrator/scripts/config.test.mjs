@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { defaults, initialConfig, mergeConfig, resolveDocPath, loadConfig, CONFIG_RELATIVE_PATH } from './config.mjs';
+import { defaults, initialConfig, createConfig, mergeConfig, resolveDocPath, loadConfig, CONFIG_RELATIVE_PATH } from './config.mjs';
 
 function withRepo(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestration-'));
@@ -183,6 +183,23 @@ test('init の雛形は docs を空にし、それ以外は既定値のまま', 
   assert.deepEqual(content.review.docs, []);
   assert.equal(content.review.roundCap, defaults().review.roundCap);
   assert.ok(defaults().implementation.docs.length > 0);
+});
+
+test('createConfig は雛形を書き出し、既にあれば上書きしない', () => {
+  withRepo((dir) => {
+    const created = createConfig(dir);
+    assert.equal(created.created, true);
+    assert.equal(created.configPath, path.join(dir, CONFIG_RELATIVE_PATH));
+    assert.deepEqual(JSON.parse(fs.readFileSync(created.configPath, 'utf8')), initialConfig());
+
+    const edited = { review: { roundCap: 5 } };
+    fs.writeFileSync(created.configPath, JSON.stringify(edited));
+    const again = createConfig(dir);
+    assert.equal(again.created, false);
+    assert.equal(again.reason, 'already-exists');
+    assert.deepEqual(again.content, edited);
+    assert.deepEqual(JSON.parse(fs.readFileSync(created.configPath, 'utf8')), edited);
+  });
 });
 
 test('未知のキーはトップレベルでもセクション内でも弾く', () => {
