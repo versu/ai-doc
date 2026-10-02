@@ -3,6 +3,7 @@ name: create-gh-issue
 description: GitHub の Issue を作成するスキル。親を指定したサブ Issue の作成にも対応する。「Issue を作って」「これを課題として起票して」「サブIssueに分けて登録して」等のときに使用する。作成前に必ず内容を提示して合意を取り、希望があれば本文をファイルに書き出して編集してもらってから作成する。
 allowed-tools:
   - AskUserQuestion
+  - Bash(node:*)
   - Bash(gh --version)
   - Bash(gh auth status:*)
   - Bash(gh issue create:*)
@@ -11,6 +12,20 @@ allowed-tools:
 ---
 
 # Issue の作成
+
+## 起動時点の設定
+
+!`node ${CLAUDE_SKILL_DIR}/scripts/settings.mjs show`
+
+プロジェクトの設定ファイル `.ai/_settings/create-gh-issue/settings.json` を、パスの解決と存在確認まで済ませたもの。
+**自分で設定ファイルを読み直さない。** 上に JSON が無ければインラインが権限で拒否されているので、同じコマンドを Bash で実行する。
+
+| 項目 | 意味 |
+|---|---|
+| `template` | 本文のテンプレート。`null` なら [references/issue-template.md](references/issue-template.md) の雛形を使う |
+| `docs` | テクニカルライティング規約に追加で読ませる規約 |
+
+設定ファイルが無いときも `ok: true` になり、既定のテンプレートと規約だけを使う。
 
 ## 渡されるもの
 
@@ -37,6 +52,11 @@ gh --version        # 親 Issue の番号が渡されたときだけ。サブ Is
 
 [references/issue-template.md](references/issue-template.md) に従う。
 文章はテクニカルライティング規約に沿って書く。
+
+- 設定の `template` があれば、それを**本文の構成**として使う。`issue-template.md` の雛形の代わりになるだけで、
+  「方針」と「タイトル」の節は引き続き守る
+- 設定の `docs` があれば、それも読んで守る。**食い違ったら `docs` の規約を優先する**
+  （プロジェクトごとの決まりのほうが、一般的な基準より具体的なため）
 
 @${CLAUDE_SKILL_DIR}/../../_docs/technical-writing.md
 
@@ -79,6 +99,7 @@ gh issue create --title "<タイトル>" --body-file <path> --assignee "@me"
 
 | 条件 | 理由 |
 |---|---|
+| 起動時点の設定が `ok: false` | 読ませるはずのテンプレートや規約が無いまま書くことになるため。`errors` をすべて示し、`aidoc issue check` で直してから呼び直すよう伝える |
 | `gh` が未認証 | 作れないため |
 | 渡された親 Issue が存在しない | 取り違えた親にぶら下げてしまうため |
 

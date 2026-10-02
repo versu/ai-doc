@@ -1,11 +1,16 @@
-# 設定ファイル `.ai/orchestration.json`
+# 設定ファイル `.ai/_settings/coding-orchestrator/settings.json`
 
 読み手はオーケストレーター。現場ごとの差異をここから受け取る。
 
 ## 置き場所
 
-参画先リポジトリの `.ai/orchestration.json`。
+参画先リポジトリの `.ai/_settings/coding-orchestrator/settings.json`。
 `.ai/` は `aidoc install` が `.git/info/exclude` に登録しているため、参画先を汚さない。
+
+設定はスキルごとに `.ai/_settings/<スキル名>/` へ分けて置く。
+Issue・PR の本文のテンプレートや追加の規約は、それぞれ Issue 作成スキル・PR 作成スキルの設定に書く
+（`.ai/_settings/create-gh-issue/settings.json`、`.ai/_settings/create-gh-pr/settings.json`）。
+スキルを単体で使ったときにも同じ設定が効くようにするため。
 
 **このファイルが無ければオーケストレーターは動かない。**
 `config.mjs init` で作らせてから進む。既定値で勝手に走らせない理由は、設定の中身が
@@ -27,8 +32,6 @@
 | `review.skills` | 文字列の配列 | スキル名 | `[]` | 上書き | レビュアーエージェントに使わせるスキル |
 | `review.docs` | 文字列の配列 | パス | 下記「既定の規約」 | **既定に追加** | レビュアーエージェントがレビュー前に必ず読むドキュメント。これがレビュー基準になる |
 | `review.roundCap` | 整数 | 1 以上 | `3` | 上書き | 1タスクあたりのレビュー回数の上限 |
-| `pullRequest.template` | 文字列/null | パス | `null` | 上書き | PR 本文のテンプレート。`null` なら PR 作成スキルの既定のテンプレート（`create-gh-pr/references/pr-template.md`）を使う |
-| `pullRequest.docs` | 文字列の配列 | パス | `[]` | 上書き（既定は空） | PR を書く前に読ませる規約。PR 作成スキルが常に読む `create-gh-pr/references/pr-writing.md` に**追加で**読ませ、食い違えばこちらを優先する |
 
 既定値は [orchestration.default.json](orchestration.default.json) が正本。
 
@@ -80,8 +83,11 @@ node <このスキル>/scripts/config.mjs check
 ```
 
 問題があれば終了コード1で、`{ ok, reason, configPath, errors }` を返す。
-問題は最初の1件で止めず、すべて `errors` に並べる。`show` も同じ判定を使うので、`ok` は両者で一致する。
-検査は下の表の順に段階を踏み、ある段階で問題があればそこで止める（記法が誤っていると、パスが正しく読み取れないため）。
+Issue・PR 作成スキルの設定（ファイルが無ければ既定で通る）も合わせて検証し、その問題も `errors` に並べる。
+`reason` はオーケストレーター自身の設定の問題を優先し、呼び出し先の設定だけに問題があるときは `invalid-skill-settings` になる。
+問題は最初の1件で止めず、すべて `errors` に並べる。
+`show` はオーケストレーター自身の設定だけを同じ判定で返す。そのため `check` が通れば `show` の `ok` も `true` になる。
+各設定ファイルの検査は下の表の順に段階を踏み、ある段階で問題があればそのファイルの検査はそこで止める（記法が誤っていると、パスが正しく読み取れないため）。
 そのため、記法を直すと、次の段階のファイルの有無の問題が新たに出ることがある。
 
 | 検査 | 不合格の例 | `reason` |
@@ -90,10 +96,11 @@ node <このスキル>/scripts/config.mjs check
 | JSON として読める | `{ broken` | `invalid-json` |
 | 最上位と各セクションがオブジェクト | `[]`、`"review": []` | `invalid-value` |
 | 未知のキーが無い | `implemntation`、`review.roundcap` | `invalid-value` |
-| 値の型と範囲 | `createIssue: "yes"`、`roundCap: 0`、`template: 1` | `invalid-value` |
+| 値の型と範囲 | `createIssue: "yes"`、`roundCap: 0`、`skills: "x"` | `invalid-value` |
 | 配列の要素が空でない文字列 | `docs: [1]`、`docs: [""]` | `invalid-value` |
 | `implementation.skills` に `commit` が無い | `["core:commit"]` | `invalid-value` |
 | 書かれたパスのファイルがある | `docs/ない.md`、`.ai/_docs/coding.md`（`aidoc install` 漏れ） | `missing-docs` |
+| Issue・PR 作成スキルの設定が妥当 | `create-gh-pr` の `template` のファイルが無い | `invalid-skill-settings` |
 
 既知のキーは [orchestration.default.json](orchestration.default.json) のキーから作る。
 項目を増やすときは、そのファイルに既定値を足せば検証も追従する。

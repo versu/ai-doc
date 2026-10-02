@@ -33,7 +33,7 @@ allowed-tools:
 !`node ${CLAUDE_SKILL_DIR}/scripts/config.mjs show`
 
 既定値の補完・パスの解決・存在確認まで済ませた設定。
-**自分で `.ai/orchestration.json` を読み直さない。**
+**自分で `.ai/_settings/coding-orchestrator/settings.json` を読み直さない。**
 上に JSON が無ければインラインが権限で拒否されているので、同じコマンドを Bash で実行する。
 
 ---
@@ -49,6 +49,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/config.mjs check
 ```
 
 設定ファイルの有無、JSON の構文、キー名の綴り、値の型と範囲、書かれたパスのファイルの有無をまとめて検証する。
+呼び出し先の Issue 作成スキルと PR 作成スキルの設定も、ここで合わせて検証する。
 **自分で設定ファイルを読んで判定しない。**
 
 | 終了コード / `reason` | すること |
@@ -57,6 +58,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/config.mjs check
 | `1` / `not-initialized` | `errors` と `initCommand` を示し、設定を作ってから呼び直すよう伝えて**止まる** |
 | `1` / `invalid-json`・`invalid-value` | `errors` を**すべて**示し、設定を直してから呼び直すよう伝えて**止まる** |
 | `1` / `missing-docs` | 同上。読ませるはずの規約が無いまま進むと、規約を守らない実装とレビューが通ってしまう |
+| `1` / `invalid-skill-settings` | 同上。Issue・PR 作成スキルの設定の問題。実装を終えたあとの Issue・PR 作成で初めて止まるのを避けるため、ここで止める |
 
 **既定値で走らせない。問題を読み飛ばして進まない。** 設定は「この現場でどの規約を読ませるか」そのものなので、
 食い違ったまま進むと現場の規約が読まれないまま実装とレビューが終わり、あとから気づくことになる。
@@ -145,7 +147,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 | 4-2 | 実装エージェントを新規起動。**返ってきたエージェント ID を履歴に残す** |
 | 4-3 | **`state.mjs review-base` を実行**して範囲を決め、レビュアーを**毎回新規起動**。裁定して `review` を追記 |
 | 4-4 | 区切りの確認。テストを流し、画面を作ったなら `AskUserQuestion` で目視確認を依頼する |
-| 4-5 | PR 作成（設定に従う）。**宛先は base ブランチ**。テンプレートと規約は設定の `pullRequest` から渡す。`pull-request` を追記 |
+| 4-5 | PR 作成（設定に従う）。**宛先は base ブランチ**。`pull-request` を追記 |
 
 ### 4-3 のループの抜け方
 

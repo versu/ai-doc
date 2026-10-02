@@ -67,7 +67,7 @@
 
 ## 使う前の準備（プロジェクトごとに1回）
 
-プロジェクトのルートで次を実行し、設定ファイル `.ai/orchestration.json` を作る。
+プロジェクトのルートで次を実行し、設定ファイル `.ai/_settings/coding-orchestrator/settings.json` を作る。
 
 ```bash
 aidoc orchestrator init
@@ -95,8 +95,6 @@ aidoc orchestrator init
 | `review.docs` | 下の「既定の規約」 | **既定に追加** | レビュアーエージェントが読む規約。これがレビューの基準になる |
 | `review.skills` | なし | 上書き | レビュアーエージェントに使わせるスキル |
 | `review.roundCap` | `3` | 上書き | 1タスクあたりのラウンドの上限 |
-| `pullRequest.template` | なし（PR 作成スキルの既定のテンプレート） | 上書き | PR 本文のテンプレート |
-| `pullRequest.docs` | なし | 上書き | PR を書く前に読ませる規約。PR 作成スキルの既定の書き方に追加で読ませ、食い違えばこちらを優先する |
 
 ### 既定の規約
 
@@ -118,21 +116,15 @@ aidoc orchestrator init
 "review": { "docs": [".ai/_docs/php-coding.md"] }
 ```
 
-PR を作るときは、上とは別に PR 作成スキルが自分の既定を使う。
+### Issue・PR の本文のテンプレートと規約
 
-| 用途 | 既定 | 設定との関係 |
+Issue と PR の本文のテンプレートや、追加で読ませる規約は、オーケストレーターの設定ではなく、Issue 作成スキルと PR 作成スキルのそれぞれの設定に書く。
+スキルを単体で使ったときにも同じ設定が効くようにするため。書き方は各スキルの利用ガイドを参照する。
+
+| 用途 | 設定ファイル | 利用ガイド |
 |---|---|---|
-| PR 本文のテンプレート | [create-gh-pr/references/pr-template.md](../../plugins/core/skills/create-gh-pr/references/pr-template.md) | `pullRequest.template` を設定すると置き換わる |
-| PR の書き方の規約 | [create-gh-pr/references/pr-writing.md](../../plugins/core/skills/create-gh-pr/references/pr-writing.md) | 常に読まれる。`pullRequest.docs` はこれに追加で読まれる |
-
-プロジェクトで決まった PR テンプレートや書き方の規約がある場合は、次のように指定する。
-
-```json
-"pullRequest": {
-  "template": ".github/pull_request_template.md",
-  "docs": ["docs/pr-guideline.md"]
-}
-```
+| Issue の本文 | `.ai/_settings/create-gh-issue/settings.json` | [docs/create-gh-issue/README.md](../create-gh-issue/README.md) |
+| PR の本文 | `.ai/_settings/create-gh-pr/settings.json` | [docs/create-gh-pr/README.md](../create-gh-pr/README.md) |
 
 - パスは**リポジトリのルートからの相対パス**で書く。サブフォルダから Claude Code を起動しても同じファイルを指す
 - `implementation.skills` に `core:commit` は書かない。`commit` スキルはユーザーの承認を求めるが、実装エージェントはユーザーに質問できないため。コミットメッセージ規約は `implementation.docs` で読ませる
@@ -140,6 +132,7 @@ PR を作るときは、上とは別に PR 作成スキルが自分の既定を�
 ### 設定の検証
 
 オーケストレーターは起動するとまず設定ファイルを検証し、問題があれば理由をすべて示して止まる。
+Issue 作成スキルと PR 作成スキルの設定も、このとき合わせて検証する。実装を終えたあとの Issue・PR 作成で初めて止まるのを避けるため。
 設定を直したあとは、次のコマンドで同じ検証を自分で確かめられる。問題が無ければ終了コード0、あれば理由をすべて示して終了コード1で終わる。
 
 ```bash
@@ -152,6 +145,7 @@ aidoc orchestrator check
 - キー名を綴り間違えている（`implemntation` など）
 - 値の型や範囲が誤っている（`roundCap: 0`、`docs: [1]` など）
 - 書いたパスのファイルが無い。既定の規約（`.ai/_docs/...`）が無い場合は、そのプロジェクトで `aidoc install` を実行したかを確認する
+- Issue 作成スキル・PR 作成スキルの設定に、上と同じ種類の問題がある
 
 各項目の型やパスの解決規則は [references/config.md](../../plugins/core/skills/coding-orchestrator/references/config.md) にある。
 既定値の正本は [orchestration.default.json](../../plugins/core/skills/coding-orchestrator/references/orchestration.default.json)。

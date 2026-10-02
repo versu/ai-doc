@@ -109,12 +109,7 @@ Follow-up は毎ラウンド `follow-up:` として記録し、**その場では
 設定 `orchestrator.createPullRequest` に従う（`"ask"` なら `AskUserQuestion` でここで聞く）。
 
 PR 作成スキルを呼ぶ。**宛先は base ブランチ**（積み上げなら直前のタスクのブランチ）。
-起動時点の設定の `pullRequest` から、次も渡す。
-
-| 渡すもの | 設定から取る値 |
-|---|---|
-| 本文のテンプレート | `pullRequest.template` が null でなければ、その `resolved`。null なら渡さない（PR 作成スキルの既定を使う） |
-| 追加の規約 | `pullRequest.docs` の各 `resolved` |
+本文のテンプレートと追加の規約は渡さない。PR 作成スキルが自分の設定（`.ai/_settings/create-gh-pr/settings.json`）から読む。
 
 作成したら `pull-request` の履歴を追記する。
 

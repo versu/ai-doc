@@ -17,7 +17,7 @@ function withRepo(fn) {
 }
 
 const writeConfigOnly = (dir, config) => {
-  fs.mkdirSync(path.join(dir, '.ai'), { recursive: true });
+  fs.mkdirSync(path.dirname(path.join(dir, CONFIG_RELATIVE_PATH)), { recursive: true });
   fs.writeFileSync(path.join(dir, CONFIG_RELATIVE_PATH), JSON.stringify(config));
 };
 
@@ -83,7 +83,7 @@ test('設定ファイルが無ければ ok:false と理由を返す（例外に�
 
 test('壊れた JSON は理由つきで返す', () => {
   withRepo((dir) => {
-    fs.mkdirSync(path.join(dir, '.ai'), { recursive: true });
+    writeConfigOnly(dir, {});
     fs.writeFileSync(path.join(dir, CONFIG_RELATIVE_PATH), '{ broken');
     assert.equal(loadConfig(dir).reason, 'invalid-json');
   });
@@ -97,8 +97,9 @@ test('存在しない docs があれば missing-docs で止め、無いものだ
     const result = loadConfig(dir);
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'missing-docs');
-    assert.deepEqual(result.missingDocs, ['docs/ない.md']);
+    assert.equal(result.errors.length, 1);
     assert.ok(result.errors[0].startsWith('implementation.docs:'));
+    assert.ok(result.errors[0].includes('docs/ない.md'));
   });
 });
 
@@ -118,48 +119,6 @@ test('値が不正なら ok:false で止める（既定値で握りつぶさな�
     const result = loadConfig(dir);
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'invalid-value');
-  });
-});
-
-test('PR のテンプレートと規約は未設定なら null と空配列になる', () => {
-  withRepo((dir) => {
-    writeConfig(dir, {});
-    const result = loadConfig(dir);
-    assert.equal(result.ok, true);
-    assert.equal(result.pullRequest.template, null);
-    assert.deepEqual(result.pullRequest.docs, []);
-  });
-});
-
-test('PR のテンプレートにパスか null 以外が入っていれば弾く', () => {
-  const { errors } = mergeConfig({ pullRequest: { template: 1 } });
-  assert.ok(errors.some((e) => e.includes('pullRequest.template')));
-});
-
-test('PR の規約が配列でなければ弾く', () => {
-  const { errors } = mergeConfig({ pullRequest: { docs: 'docs/pr.md' } });
-  assert.ok(errors.some((e) => e.includes('pullRequest.docs')));
-});
-
-test('PR のテンプレートと規約はリポジトリルートを起点に解決する', () => {
-  withRepo((dir) => {
-    writeConfig(dir, { pullRequest: { template: 'docs/pr-template.md', docs: ['docs/pr-rule.md'] } });
-    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'docs/pr-template.md'), '# 雛形');
-    fs.writeFileSync(path.join(dir, 'docs/pr-rule.md'), '# 規約');
-    const result = loadConfig(dir);
-    assert.equal(result.ok, true);
-    assert.equal(result.pullRequest.template.resolved, path.join(dir, 'docs/pr-template.md'));
-    assert.equal(result.pullRequest.docs[0].resolved, path.join(dir, 'docs/pr-rule.md'));
-  });
-});
-
-test('存在しない PR テンプレートでも止める', () => {
-  withRepo((dir) => {
-    writeConfig(dir, { pullRequest: { template: 'docs/pr-template.md' } });
-    const result = loadConfig(dir);
-    assert.equal(result.reason, 'missing-docs');
-    assert.deepEqual(result.missingDocs, ['docs/pr-template.md']);
   });
 });
 
@@ -214,14 +173,13 @@ test('最上位やセクションがオブジェクトでなければ弾く', ()
 });
 
 test('配列の要素が空でない文字列でなければ弾く', () => {
-  const { errors } = mergeConfig({ implementation: { docs: [1, ''] }, review: { skills: [null] }, pullRequest: { docs: [' '] } });
+  const { errors } = mergeConfig({ implementation: { docs: [1, ''] }, review: { skills: [null] } });
   assert.ok(errors.some((e) => e.startsWith('implementation.docs:')));
   assert.ok(errors.some((e) => e.startsWith('review.skills:')));
-  assert.ok(errors.some((e) => e.startsWith('pullRequest.docs:')));
 });
 
-test('PR のテンプレートが空文字列なら弾く', () => {
-  assert.ok(mergeConfig({ pullRequest: { template: '' } }).errors.some((e) => e.startsWith('pullRequest.template:')));
+test('設定ファイルの置き場所は .ai/_settings/coding-orchestrator/settings.json', () => {
+  assert.equal(CONFIG_RELATIVE_PATH, path.join('.ai', '_settings', 'coding-orchestrator', 'settings.json'));
 });
 
 test('問題は1件で止めず、すべて列挙する', () => {
@@ -256,5 +214,38 @@ test('check は設定ファイルが無ければ終了コード1で、作成コ�
     const report = JSON.parse(run.stdout);
     assert.equal(report.reason, 'not-initialized');
     assert.ok(report.initCommand.includes('init'));
+  });
+});
+
+/** 呼び出し先スキル（Issue・PR 作成）の設定ファイルを置く。 */
+const writeSkillSettings = (dir, skill, content) => {
+  const settingsPath = path.join(dir, '.ai', '_settings', skill, 'settings.json');
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, typeof content === 'string' ? content : JSON.stringify(content));
+};
+
+test('check は呼び出し先スキルの設定も検証し、問題があれば invalid-skill-settings で止める', () => {
+  withRepo((dir) => {
+    writeConfig(dir, {});
+    writeSkillSettings(dir, 'create-gh-pr', { template: 'docs/ない.md' });
+    writeSkillSettings(dir, 'create-gh-issue', { tempalte: null });
+    const run = runCheck(dir);
+    assert.equal(run.status, 1);
+    const report = JSON.parse(run.stdout);
+    assert.equal(report.reason, 'invalid-skill-settings');
+    assert.equal(report.errors.length, 2);
+    assert.ok(report.errors.some((e) => e.startsWith('create-gh-pr') && e.includes('docs/ない.md')));
+    assert.ok(report.errors.some((e) => e.startsWith('create-gh-issue') && e.includes('tempalte')));
+  });
+});
+
+test('check はオーケストレーター側の問題を優先して reason に出し、呼び出し先の問題も合わせて返す', () => {
+  withRepo((dir) => {
+    writeConfig(dir, { review: { roundCap: 0 } });
+    writeSkillSettings(dir, 'create-gh-pr', '{ broken');
+    const report = JSON.parse(runCheck(dir).stdout);
+    assert.equal(report.reason, 'invalid-value');
+    assert.ok(report.errors.some((e) => e.startsWith('review.roundCap:')));
+    assert.ok(report.errors.some((e) => e.startsWith('create-gh-pr')));
   });
 });

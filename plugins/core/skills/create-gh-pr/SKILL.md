@@ -3,6 +3,7 @@ name: create-gh-pr
 description: GitHub の Pull Request を作成するスキル。作業ブランチを push し、宛先ブランチを指定して PR を作る。「PR を作って」「プルリク出して」「レビューに出して」等のときに使用する。作成前に必ず内容を提示して合意を取り、希望があれば本文をファイルに書き出して編集してもらってから作成する。本文は人間のレビュアーが読む前提で、ドメイン用語で書く。
 allowed-tools:
   - AskUserQuestion
+  - Bash(node:*)
   - Bash(gh --version)
   - Bash(gh auth status:*)
   - Bash(gh pr create:*)
@@ -18,6 +19,20 @@ allowed-tools:
 
 # Pull Request の作成
 
+## 起動時点の設定
+
+!`node ${CLAUDE_SKILL_DIR}/scripts/settings.mjs show`
+
+プロジェクトの設定ファイル `.ai/_settings/create-gh-pr/settings.json` を、パスの解決と存在確認まで済ませたもの。
+**自分で設定ファイルを読み直さない。** 上に JSON が無ければインラインが権限で拒否されているので、同じコマンドを Bash で実行する。
+
+| 項目 | 意味 |
+|---|---|
+| `template` | 本文のテンプレート。`null` なら [references/pr-template.md](references/pr-template.md) を使う |
+| `docs` | [references/pr-writing.md](references/pr-writing.md) に追加で読ませる規約 |
+
+設定ファイルが無いときも `ok: true` になり、既定のテンプレートと規約だけを使う。
+
 ## 渡されるもの
 
 | 項目 | 省略時・扱い |
@@ -25,8 +40,6 @@ allowed-tools:
 | 宛先（base）ブランチ | リポジトリの既定ブランチ。**積み上げ（stacked PR）では直前のタスクのブランチ**になるので、呼び出し側の指定に従う |
 | タイトル | 本文から起こして確認する |
 | 本文（または spec と Issue 番号） | spec と直近のコミットから組み立てる |
-| 本文のテンプレート（ファイルのパス） | [references/pr-template.md](references/pr-template.md) |
-| 追加の規約（ファイルのパスの配列） | なし（[references/pr-writing.md](references/pr-writing.md) だけを守る） |
 | draft か否か | draft にしない |
 | 担当者 | **自分（`@me`）。** 空だとレビュー待ちの一覧で誰が面倒を見るのか分からなくなる |
 
@@ -44,11 +57,11 @@ git log --oneline <base>..HEAD    # コミットが1つ以上あること
 
 ### 2. 本文を組み立てる
 
-本文のテンプレート（渡されなければ [references/pr-template.md](references/pr-template.md)）の構成に従い、
+本文のテンプレート（設定の `template`。`null` なら [references/pr-template.md](references/pr-template.md)）の構成に従い、
 [references/pr-writing.md](references/pr-writing.md) の書き方を守る。
 
-- 渡されたテンプレートは**本文の構成**として使う。タイトルはテンプレートに無くても別に起こす
-- 追加の規約が渡されたら、`pr-writing.md` に加えてそれも読んで守る。**食い違ったら追加の規約を優先する**
+- 設定のテンプレートは**本文の構成**として使う。タイトルはテンプレートに無くても別に起こす
+- 設定の `docs` があれば、`pr-writing.md` に加えてそれも読んで守る。**食い違ったら `docs` の規約を優先する**
   （プロジェクトごとの決まりのほうが、ここにある一般的な基準より具体的なため）
 - 「Generated with Claude Code」などの生成元の表記は付けない。本文はテンプレートの構成どおりの内容だけにする
 
@@ -105,6 +118,7 @@ gh pr create --base <宛先ブランチ> --title "<タイトル>" --body-file <p
 
 | 条件 | 理由 |
 |---|---|
+| 起動時点の設定が `ok: false` | 読ませるはずのテンプレートや規約が無いまま書くことになるため。`errors` をすべて示し、`aidoc pr check` で直してから呼び直すよう伝える |
 | `gh` が未認証 | 作れないため |
 | 未コミットの変更がある | PR の差分に入らない変更が手元に残るため |
 | `<base>..HEAD` にコミットが無い | 空の PR になるため |

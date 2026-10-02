@@ -8,7 +8,7 @@
     "aidoc": "src/aidoc.js"
   },
   "scripts": {
-    "test": "node --test \"plugins/**/scripts/*.test.mjs\""
+    "test": "node --test \"plugins/**/scripts/*.test.mjs\" \"plugins/**/_lib/*.test.mjs\""
   },
   "engines": {
     "node": ">=20"
