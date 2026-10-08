@@ -18,7 +18,8 @@ if (Number(process.versions.node.split('.')[0]) < REQUIRED_NODE_MAJOR) {
 
 export function repoRootOf(cwd) {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim();
+    // git 管理外（ハブなど）では失敗するのが正常なので、git のエラー出力は出さない
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return path.resolve(cwd);
   }

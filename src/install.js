@@ -9,6 +9,15 @@ import { readSettings, writeSettings } from './settings.js';
 
 const EXCLUDE_DIRECTORIES = ['.ai'];
 
+export const RELOAD_NOTICE =
+  '\n※ 実行中の Claude Code セッションには反映されません。セッションを開き直してください' +
+  '\n　（VS Code 拡張の場合はウィンドウの再読み込み。/reload-plugins では反映されません）';
+
+/** 導入済みか。マーケットプレイスの登録と .ai/_docs のリンクの両方があれば導入済みとみなす */
+export function isInstalled(targetDir) {
+  return Boolean(readSettings(targetDir).extraKnownMarketplaces?.[MARKETPLACE_NAME]) && fs.existsSync(docsLinkPathOf(targetDir));
+}
+
 /** 導入先の settings.local.json へ、値が未設定の場合だけ入れる既定値 */
 const DEFAULT_SETTINGS = { language: 'japanese' };
 
@@ -78,7 +87,8 @@ async function installExternalPlugins(targetDir) {
   }
 }
 
-export async function install(targetDir) {
+/** @param notice 最後にセッションの開き直しを案内するか。ほかのコマンドから続けて呼ぶときは、呼び出し側でまとめて案内する */
+export async function install(targetDir, { notice = true } = {}) {
   // マーケットプレイスとプラグインを、このプロジェクト限定（local スコープ）で登録する
   if (readSettings(targetDir).extraKnownMarketplaces?.[MARKETPLACE_NAME]) {
     console.log('- マーケットプレイス: 登録済み');
@@ -104,10 +114,7 @@ export async function install(targetDir) {
 
   await installExternalPlugins(targetDir);
 
-  console.log(
-    '\n※ 実行中の Claude Code セッションには反映されません。セッションを開き直してください' +
-      '\n　（VS Code 拡張の場合はウィンドウの再読み込み。/reload-plugins では反映されません）',
-  );
+  if (notice) console.log(RELOAD_NOTICE);
 
   return docsLink === 'conflict' ? 1 : 0;
 }

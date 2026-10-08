@@ -24,7 +24,8 @@
 | 項目 | 意味 |
 |---|---|
 | `specPath` | 読むべき spec.md のパス。Scope lock がこのエージェントへの契約。タスク名もここから分かる |
-| `requiredDocs` | 着手前に必ず読むドキュメントのパス（設定 `implementation.docs` を解決したもの） |
+| `repoPath` | 作業するリポジトリのルート（`state.mjs show` の `repoPath`）。git もテストもここで行う |
+| `requiredDocs` | 着手前に必ず読むドキュメントのパス（設定 `implementation.docs` を解決したもの。複数リポジトリモードでは `repos.<リポジトリ>.implementation.docs`） |
 | `availableSkills` | 使ってよいスキルの解決済み名。空なら何も使わない |
 
 ### 2回目以降（`SendMessage` での再開）で渡すもの
@@ -34,7 +35,7 @@
 | `blockers` | 直すべきブロッカーの一覧（レビュアーの `findings` の形）。**ここに挙がったものだけを直す** |
 | `resolvedQuestions` | 前回返した質問へのユーザーの回答（`question` と `answer` の組） |
 
-spec も規約も1回目に読んでいるので渡し直さない。
+spec も規約も `repoPath` も1回目に渡しているので渡し直さない。
 `mode` のような「実装か修正か」の印も渡さない。**`blockers` が渡されたラウンドが修正ラウンド**、
 という規則にすれば同じことを2か所に書かずに済む。
 
@@ -74,9 +75,10 @@ spec も規約も1回目に読んでいるので渡し直さない。
 | 項目 | 意味 |
 |---|---|
 | `specPath` | Scope lock を読ませる。受け入れ条件がレビューの基準になる |
+| `repoPath` | レビューするリポジトリのルート。`base` / `head` はこのリポジトリのコミット |
 | `base` / `head` | レビュー範囲の起点・終点の SHA。`state.mjs review-base` が返した値をそのまま渡す |
 | `mode` | `"full"` / `"regression"`。算出できる値だが、**問いそのものが変わる**ので明示的に渡す |
-| `requiredDocs` | レビュー前に必ず読むドキュメント（設定 `review.docs` を解決したもの） |
+| `requiredDocs` | レビュー前に必ず読むドキュメント（設定 `review.docs` を解決したもの。複数リポジトリモードでは `repos.<リポジトリ>.review.docs`） |
 | `availableSkills` | 使ってよいスキルの解決済み名 |
 | `dispositions` | これまでの全ラウンドの処置。初回は `["None yet"]` |
 

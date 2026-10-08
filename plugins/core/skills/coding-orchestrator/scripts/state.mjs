@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { repoRootOf } from './config.mjs';
+import { loadWorkspace } from '../../../_lib/workspace.mjs';
 
 const REQUIRED_NODE_MAJOR = 20;
 if (Number(process.versions.node.split('.')[0]) < REQUIRED_NODE_MAJOR) {
@@ -309,9 +310,10 @@ function fail(message, code = 1) {
   process.exit(code);
 }
 
-/** タスクディレクトリの置き場所。`_done/` は完了済みなので一覧に出さない。 */
+/** タスクディレクトリの置き場所。`_done/` は完了済み、`_drafts/` は下書き置き場なので一覧に出さない。 */
 export const TASKS_RELATIVE_PATH = path.join('.ai', '_tasks');
 const DONE_DIR = '_done';
+export const DRAFTS_DIR = '_drafts';
 
 /**
  * 進行中のタスクを一覧する。
@@ -331,7 +333,7 @@ export function listTasks(cwd) {
   const tasks = [];
   const ignored = [];
   for (const e of fs.readdirSync(tasksDir, { withFileTypes: true })) {
-    if (!e.isDirectory() || e.name === DONE_DIR) continue;
+    if (!e.isDirectory() || e.name === DONE_DIR || e.name === DRAFTS_DIR) continue;
     const dir = path.join(tasksDir, e.name);
     const file = progressPathOf(dir);
     if (!fs.existsSync(file)) {
@@ -358,6 +360,7 @@ export function listTasks(cwd) {
       name: e.name,
       dir,
       phase: status.phase ?? null,
+      repo: doc.repo ?? null,
       currentTask: status.currentTask ?? null,
       summary: (status.currentTask ? states[status.currentTask]?.summary : null) ?? summaries.at(-1) ?? null,
       updatedAt: status.updatedAt ?? null,
@@ -411,6 +414,158 @@ export function completeTask(dir, { force = false } = {}) {
   return { from, to, phase: doc.status.phase };
 }
 
+/**
+ * Issue 番号を付けたフォルダ名。名前の組み立てを手順書に任せると、書式が揺れて一覧で探せなくなる。
+ * 複数リポジトリモードの下書きは `<リポジトリ> <タイトル>` なので、`<リポジトリ>#<番号> <タイトル>` にする。
+ */
+export function numberedName(name, issue, repo = null) {
+  if (repo === null) return `#${issue} ${name}`;
+  if (!name.startsWith(`${repo} `)) throw new Error(`フォルダ名が「${repo} 」で始まっていません: ${name}`);
+  return `${repo}#${issue} ${name.slice(repo.length + 1)}`;
+}
+
+const isIssueNumber = (n) => Number.isInteger(n) && n > 0;
+
+/**
+ * 合意後に起票した Issue の番号を、下書きのタスクフォルダに付ける。
+ *
+ * 下書きのフォルダは Issue より先に作るので、名前に番号が無い。
+ * 起票したら親とサブタスクのフォルダを改名し、tasks[].id（サブタスクのフォルダ名と同じ）と issue も書き換える。
+ * 実行フェーズの履歴は task に id を持つので、改名できるのは合意前（preparation）の間だけ。
+ * 失敗したときは、改名を巻き戻して何も変えずに例外を投げる。
+ */
+export function assignIssues(dir, { parent = null, tasks: issuesById = {} } = {}) {
+  const from = path.resolve(dir);
+  const file = progressPathOf(from);
+  if (!fs.existsSync(file)) throw new Error(`progress.json がありません（オーケストレーターのタスクではありません）: ${file}`);
+  const original = fs.readFileSync(file, 'utf8');
+  const doc = JSON.parse(original);
+  const phase = computeStatus(doc).phase;
+  if (phase !== 'preparation') {
+    throw new Error(`合意前（phase が preparation）のタスクだけ番号を付けられます（現在: ${phase}）。実行フェーズの履歴がタスクの id を参照しているためです`);
+  }
+
+  if (parent !== null && !isIssueNumber(parent)) throw new Error(`parent: Issue 番号（1 以上の整数）か null を指定してください（現在: ${JSON.stringify(parent)}）`);
+  const renames = [];
+  for (const [id, issue] of Object.entries(issuesById)) {
+    const task = doc.tasks.find((t) => t.id === id);
+    if (!task) throw new Error(`tasks: 未知のタスクです: ${id}`);
+    if (!isIssueNumber(issue)) throw new Error(`tasks.${id}: Issue 番号（1 以上の整数）を指定してください（現在: ${JSON.stringify(issue)}）`);
+    const newId = numberedName(id, issue, task.repo ?? null);
+    renames.push({ id, issue, newId, from: path.join(from, id), to: path.join(from, newId) });
+  }
+  const parentTo = parent === null ? from : path.join(path.dirname(from), numberedName(path.basename(from), parent, doc.repo ?? null));
+
+  // 動かす前に確かめられることは全部確かめる。途中で止まると巻き戻しが要るため
+  for (const r of renames) {
+    if (!fs.existsSync(r.from)) throw new Error(`サブタスクのフォルダがありません: ${r.from}`);
+    if (fs.existsSync(r.to)) throw new Error(`改名先に同名のフォルダがあります: ${r.to}`);
+  }
+  if (parentTo !== from && fs.existsSync(parentTo)) throw new Error(`改名先に同名のフォルダがあります: ${parentTo}`);
+
+  const done = [];
+  try {
+    for (const r of renames) {
+      fs.renameSync(r.from, r.to);
+      done.push(r);
+    }
+    const newIds = new Map(renames.map((r) => [r.id, r.newId]));
+    for (const t of doc.tasks) {
+      if (!newIds.has(t.id)) continue;
+      t.issue = issuesById[t.id];
+      t.id = newIds.get(t.id);
+    }
+    for (const h of doc.histories) {
+      if (newIds.has(h.task)) h.task = newIds.get(h.task);
+    }
+    doc.status = computeStatus(doc, nowIso());
+    writeDoc(from, doc);
+    if (parentTo !== from) fs.renameSync(from, parentTo);
+  } catch (error) {
+    fs.writeFileSync(file, original);
+    for (const r of done.reverse()) fs.renameSync(r.to, r.from);
+    throw new Error(`番号を付けられませんでした: ${error.message}`);
+  }
+  return {
+    from,
+    to: parentTo,
+    tasks: renames.map((r) => ({ from: r.id, to: r.newId })),
+  };
+}
+
+// --- 対象リポジトリ ---------------------------------------------------------
+
+/**
+ * タスクディレクトリ（`<ハブ>/.ai/_tasks/<名前>`）からハブを求める。
+ * 作業ディレクトリからは求めない。対象リポジトリへ cd したあとに呼ばれても、同じハブを指すようにするため。
+ */
+export function hubOfTaskDir(dir) {
+  const tasksDir = path.dirname(path.resolve(dir));
+  if (!tasksDir.endsWith(`${path.sep}${TASKS_RELATIVE_PATH}`)) {
+    throw new Error(`.ai/_tasks/ の直下のタスクディレクトリを指定してください: ${dir}`);
+  }
+  return path.dirname(path.dirname(tasksDir));
+}
+
+/**
+ * 記録するリポジトリがワークスペースと合っているかを確かめる。戻り値はエラーメッセージの配列。
+ * 複数リポジトリモードでは、親（最上位の repo）とすべてのサブタスクのリポジトリが必須。
+ */
+export function validateRepos(doc, workspace) {
+  const errors = [];
+  const keys = Object.keys(workspace.repos);
+  if (workspace.mode === 'single') {
+    if (doc.repo) errors.push('単一リポジトリモード（.code-workspace に対象リポジトリが無い）では --repo を指定しません');
+    if (doc.tasks.some((t) => t.repo)) errors.push('単一リポジトリモードでは tasks[].repo を指定しません');
+    return errors;
+  }
+  const check = (field, key) => {
+    if (typeof key !== 'string' || key === '') errors.push(`${field}: リポジトリ名を指定してください（${keys.join(' / ')}）`);
+    else if (!workspace.repos[key]) errors.push(`${field}: .code-workspace に無いリポジトリです: ${key}（${keys.join(' / ')}）`);
+  };
+  check('repo（--repo）', doc.repo);
+  for (const t of doc.tasks) check(`tasks[${JSON.stringify(t.id)}].repo`, t.repo);
+  return errors;
+}
+
+/**
+ * タスクを作業するリポジトリを解決する。key は tasks[].id か、分解していなければ main。
+ * 単一リポジトリモードでは、ハブ自身がリポジトリ。
+ */
+export function repoOf(doc, key, workspace) {
+  if (workspace.mode === 'single') return { repo: null, repoPath: workspace.hubRoot };
+  const task = doc.tasks.find((t) => t.id === key);
+  if (doc.tasks.length > 0 && key !== null && key !== SINGLE_TASK_KEY && !task) throw new Error(`未知のタスクです: ${key}`);
+  const repo = task?.repo ?? doc.repo ?? null;
+  if (!repo) throw new Error('progress.json にリポジトリが記録されていません（init --repo で作り直してください）');
+  const entry = workspace.repos[repo];
+  if (!entry) throw new Error(`.code-workspace に無いリポジトリです: ${repo}`);
+  return { repo, repoPath: entry.resolved };
+}
+
+function workspaceOfTaskDir(dir) {
+  const workspace = loadWorkspace(hubOfTaskDir(dir));
+  if (!workspace.ok) throw new Error(`.code-workspace に問題があります:\n- ${workspace.errors.join('\n- ')}`);
+  return workspace;
+}
+
+/**
+ * 積み上げの base を決める。**同じリポジトリの直前のタスク**のブランチから切る。
+ * 別のリポジトリのブランチからは切れないので、同じリポジトリに先行するタスクが無ければ null（＝既定ブランチ）。
+ */
+export function branchBaseOf(doc, key, workspace) {
+  const { repo, repoPath } = repoOf(doc, key, workspace);
+  if (doc.tasks.length === 0) return { task: SINGLE_TASK_KEY, repo, repoPath, previousTask: null, base: null };
+  const index = doc.tasks.findIndex((t) => t.id === key);
+  if (index === -1) throw new Error(`未知のタスクです: ${key}`);
+  const sameRepo = (t) => workspace.mode === 'single' || (t.repo ?? doc.repo) === repo;
+  const previous = doc.tasks.slice(0, index).reverse().find(sameRepo) ?? null;
+  if (!previous) return { task: key, repo, repoPath, previousTask: null, base: null };
+  const branch = computeStatus(doc).taskStates[previous.id]?.branch ?? null;
+  if (!branch) throw new Error(`同じリポジトリの直前のタスク ${previous.id} にブランチがありません。先にそちらを進めてください`);
+  return { task: key, repo, repoPath, previousTask: previous.id, base: branch };
+}
+
 // --- サブコマンド ---------------------------------------------------------
 
 function parseArgs(argv) {
@@ -442,7 +597,15 @@ const COMMANDS = {
     const file = progressPathOf(dir);
     if (fs.existsSync(file) && !args.force) fail(`既に存在します（上書きするなら --force）: ${file}`);
     const tasks = args.tasks ? JSON.parse(fs.readFileSync(args.tasks, 'utf8')) : [];
-    const doc = { status: null, tasks, histories: [] };
+    const doc = { status: null, ...(typeof args.repo === 'string' ? { repo: args.repo } : {}), tasks, histories: [] };
+    let workspace;
+    try {
+      workspace = workspaceOfTaskDir(dir);
+    } catch (error) {
+      fail(error.message);
+    }
+    const repoErrors = validateRepos(doc, workspace);
+    if (repoErrors.length > 0) fail(`リポジトリの指定が合いません。作りませんでした:\n- ${repoErrors.join('\n- ')}`);
     doc.status = computeStatus(doc, nowIso());
     fs.mkdirSync(dir, { recursive: true });
     writeDoc(dir, doc);
@@ -480,7 +643,15 @@ const COMMANDS = {
   show(args) {
     const dir = requireDir(args);
     const doc = readDoc(dir);
-    console.log(JSON.stringify({ status: doc.status, tasks: doc.tasks }, null, 2));
+    // エージェントやスキルに渡す作業場所を、オーケストレーターに組み立てさせないよう解決して返す
+    try {
+      const workspace = workspaceOfTaskDir(dir);
+      const top = repoOf(doc, doc.tasks.length === 0 ? SINGLE_TASK_KEY : null, workspace);
+      const tasks = doc.tasks.map((t) => ({ ...t, repoPath: repoOf(doc, t.id, workspace).repoPath }));
+      console.log(JSON.stringify({ status: doc.status, repo: top.repo, repoPath: top.repoPath, tasks }, null, 2));
+    } catch (error) {
+      fail(error.message);
+    }
   },
 
   /** タスクを完了にして _done/ へ移す。phase が pr-created でなければ --force が要る。 */
@@ -488,6 +659,35 @@ const COMMANDS = {
     const dir = requireDir(args);
     try {
       console.log(JSON.stringify(completeTask(dir, { force: args.force === true }), null, 2));
+    } catch (error) {
+      fail(error.message);
+    }
+  },
+
+  /** 積み上げの base と、作業するリポジトリを返す。ブランチを準備する前に呼ぶ。 */
+  'branch-base'(args) {
+    const dir = requireDir(args);
+    const doc = readDoc(dir);
+    const key = args.task ?? SINGLE_TASK_KEY;
+    try {
+      console.log(JSON.stringify(branchBaseOf(doc, key, workspaceOfTaskDir(dir)), null, 2));
+    } catch (error) {
+      fail(error.message);
+    }
+  },
+
+  /** 下書きのタスクフォルダに、起票した Issue の番号を付ける。標準入力に { parent, tasks } の JSON を受け取る。 */
+  'assign-issues'(args) {
+    const dir = requireDir(args);
+    const raw = args.file ? fs.readFileSync(args.file, 'utf8') : readStdin();
+    let issues;
+    try {
+      issues = JSON.parse(raw);
+    } catch (e) {
+      fail(`JSON として読めませんでした: ${e.message}`);
+    }
+    try {
+      console.log(JSON.stringify(assignIssues(dir, issues), null, 2));
     } catch (error) {
       fail(error.message);
     }
@@ -505,10 +705,18 @@ const COMMANDS = {
    */
   'review-base'(args) {
     const dir = requireDir(args);
-    const repo = args.repo ?? process.cwd();
     const doc = readDoc(dir);
     const key = args.task ?? (doc.tasks.length === 0 ? SINGLE_TASK_KEY : doc.status?.currentTask);
     if (!key) fail('対象のタスクを --task で指定してください');
+    // 作業ディレクトリ（ハブ）で git を実行しないよう、既定ではタスクのリポジトリを使う
+    let repo = args.repo;
+    if (typeof repo !== 'string') {
+      try {
+        repo = repoOf(doc, key, workspaceOfTaskDir(dir)).repoPath;
+      } catch (error) {
+        fail(error.message);
+      }
+    }
     const entries = groupByTask(doc).get(key) ?? [];
     const branch = lastOf(entries, 'branch');
     if (!branch) fail(`タスク ${key} の branch 履歴がありません。先にブランチを準備してください`);

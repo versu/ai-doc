@@ -32,6 +32,8 @@ Issue・PR の本文のテンプレートや追加の規約は、それぞれ Is
 | `review.skills` | 文字列の配列 | スキル名 | `[]` | 上書き | レビュアーエージェントに使わせるスキル |
 | `review.docs` | 文字列の配列 | パス | 下記「既定の規約」 | **既定に追加** | レビュアーエージェントがレビュー前に必ず読むドキュメント。これがレビュー基準になる |
 | `review.roundCap` | 整数 | 1 以上 | `3` | 上書き | 1タスクあたりのレビュー回数の上限 |
+| `repos.<リポジトリ>.implementation.docs` | 文字列の配列 | パス | `[]` | 共通の docs に追加 | 複数リポジトリモードだけ。そのリポジトリを担当する実装エージェントに追加で読ませる規約 |
+| `repos.<リポジトリ>.review.docs` | 文字列の配列 | パス | `[]` | 共通の docs に追加 | 同上。レビュアーに追加で読ませる規約 |
 
 既定値は [orchestration.default.json](orchestration.default.json) が正本。
 
@@ -49,6 +51,21 @@ Issue・PR の本文のテンプレートや追加の規約は、それぞれ Is
 | `.ai/_docs/git-commit-comment.md` | コミットメッセージの書式 | ○ | — |
 
 `config.mjs init` が作る設定ファイルでは、この2項目を空の配列にしてある。現場で足した規約だけが並ぶようにするため。
+`config.mjs init` は、Issue・PR 作成スキルの設定の雛形も作る（既にあれば上書きしない）。
+
+## 複数リポジトリモード
+
+設定ファイルを置いたフォルダ（ハブ）に `*.code-workspace` があり、ハブ以外の git リポジトリが `folders` に並んでいるときは、
+**複数リポジトリモード**になる。対象リポジトリの一覧は `.code-workspace` から読み、この設定ファイルには持たない。
+
+- リポジトリ名は `folders[].name`、無ければフォルダ名。`#`・空白・パス区切り文字は使えない
+- git リポジトリでないフォルダと、ハブと同じリポジトリのフォルダは対象にしない
+- `repos` のキーはこのリポジトリ名に限る。`config.mjs init` は、対象リポジトリごとの空の枠を書く
+- `repos.<リポジトリ>` の相対パスの起点は**そのリポジトリのルート**。共通の `implementation.docs`・`review.docs` の起点はハブのまま
+
+`show` は `mode`（`single` / `multi`）、`hubRoot`（`.ai/` を置く場所）、`repos` を返す。
+`repos.<リポジトリ>` には `path`（リポジトリのルート）と、共通の規約にリポジトリ別の規約を足した `implementation.docs`・`review.docs` が入る。
+エージェントに渡す `requiredDocs` はここから取る。
 
 ## パスの書き方と解決の起点
 
@@ -94,9 +111,12 @@ Issue・PR 作成スキルの設定（ファイルが無ければ既定で通る
 |---|---|---|
 | 設定ファイルがある | — | `not-initialized` |
 | JSON として読める | `{ broken` | `invalid-json` |
+| `.code-workspace` が妥当 | 2つある、リポジトリ名が重複している、`folders` のフォルダが無い | `invalid-workspace` |
+| ハブから対象リポジトリへのファイルアクセスが許可されている | リポジトリを足したのに `aidoc workspace sync` を実行していない | `workspace-not-synced` |
 | 最上位と各セクションがオブジェクト | `[]`、`"review": []` | `invalid-value` |
 | 未知のキーが無い | `implemntation`、`review.roundcap` | `invalid-value` |
 | 値の型と範囲 | `createIssue: "yes"`、`roundCap: 0`、`skills: "x"` | `invalid-value` |
+| `repos` のキーが `.code-workspace` のリポジトリ名 | `repos.mobile`（ワークスペースに無い） | `invalid-value` |
 | 配列の要素が空でない文字列 | `docs: [1]`、`docs: [""]` | `invalid-value` |
 | `implementation.skills` に `commit` が無い | `["core:commit"]` | `invalid-value` |
 | 書かれたパスのファイルがある | `docs/ない.md`、`.ai/_docs/coding.md`（`aidoc install` 漏れ） | `missing-docs` |

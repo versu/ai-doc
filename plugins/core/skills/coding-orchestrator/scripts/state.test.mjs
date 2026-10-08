@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { completeTask, computeStatus, listTasks, validateEntry, TASKS_RELATIVE_PATH } from './state.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { assignIssues, branchBaseOf, completeTask, computeStatus, listTasks, numberedName, repoOf, validateEntry, validateRepos, TASKS_RELATIVE_PATH } from './state.mjs';
+import { withWorkspace } from '../../../_lib/test-workspace.mjs';
+import { loadWorkspace } from '../../../_lib/workspace.mjs';
 
 const at = (n) => `2026-09-22T10:0${n}:00+09:00`;
 
@@ -366,5 +370,184 @@ test('タスク置き場の直下でない、または progress.json の無い�
     const memo = path.join(tasksDir, 'メモ置き場');
     fs.mkdirSync(memo);
     assert.throws(() => completeTask(memo), /progress\.json/);
+  });
+});
+
+const writeDraft = (tasksDir, name, tasks = [], histories = []) => {
+  const dir = path.join(tasksDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'spec.md'), '下書き');
+  for (const t of tasks) {
+    fs.mkdirSync(path.join(dir, t.id));
+    fs.writeFileSync(path.join(dir, t.id, 'spec.md'), t.title);
+  }
+  const doc = docOf(tasks, histories);
+  doc.status = computeStatus(doc);
+  fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify(doc));
+  return dir;
+};
+
+test('下書きのフォルダに Issue 番号を付けると、親とサブタスクのフォルダと tasks[].id が改名される', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeDraft(tasksDir, '受注サマリ', [
+      { id: '金額から除く', title: '金額から除く', issue: null },
+      { id: '件数から除く', title: '件数から除く', issue: null },
+    ]);
+    const result = assignIssues(dir, { parent: 42, tasks: { 金額から除く: 43, 件数から除く: 44 } });
+    assert.equal(result.to, path.join(tasksDir, '#42 受注サマリ'));
+    assert.equal(fs.existsSync(dir), false);
+    assert.equal(fs.readFileSync(path.join(result.to, '#43 金額から除く', 'spec.md'), 'utf8'), '金額から除く');
+    const doc = JSON.parse(fs.readFileSync(path.join(result.to, 'progress.json'), 'utf8'));
+    assert.deepEqual(doc.tasks.map((t) => [t.id, t.issue]), [['#43 金額から除く', 43], ['#44 件数から除く', 44]]);
+    assert.deepEqual(Object.keys(doc.status.taskStates), ['#43 金額から除く', '#44 件数から除く']);
+    assert.deepEqual(listTasks(root).tasks.map((t) => [t.name, t.phase]), [['#42 受注サマリ', 'preparation']]);
+  });
+});
+
+test('分解していなければ親のフォルダだけを改名する', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeDraft(tasksDir, '受注サマリ');
+    const result = assignIssues(dir, { parent: 42 });
+    assert.equal(result.to, path.join(tasksDir, '#42 受注サマリ'));
+    assert.deepEqual(result.tasks, []);
+  });
+});
+
+test('改名先に同名のフォルダがあれば、何も変えずに失敗する', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeDraft(tasksDir, '受注サマリ', [{ id: '金額から除く', title: '金額から除く', issue: null }]);
+    fs.mkdirSync(path.join(tasksDir, '#42 受注サマリ'));
+    const before = fs.readFileSync(path.join(dir, 'progress.json'), 'utf8');
+    assert.throws(() => assignIssues(dir, { parent: 42, tasks: { 金額から除く: 43 } }), /同名/);
+    assert.equal(fs.existsSync(path.join(dir, '金額から除く')), true);
+    assert.equal(fs.readFileSync(path.join(dir, 'progress.json'), 'utf8'), before);
+  });
+});
+
+test('合意後（preparation でない）のタスクには番号を付けられない', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeDraft(tasksDir, '受注サマリ', [], [
+      { at: at(0), kind: 'agreement', task: null, data: { summary: '合意', parentIssue: null } },
+    ]);
+    assert.throws(() => assignIssues(dir, { parent: 42 }), /preparation/);
+    assert.equal(fs.existsSync(dir), true);
+  });
+});
+
+test('未知のタスクや不正な番号は弾く', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeDraft(tasksDir, '受注サマリ', [{ id: '金額から除く', title: '金額から除く', issue: null }]);
+    assert.throws(() => assignIssues(dir, { tasks: { 存在しない: 43 } }), /未知のタスク/);
+    assert.throws(() => assignIssues(dir, { parent: 0 }), /Issue 番号/);
+    assert.throws(() => assignIssues(dir, { tasks: { 金額から除く: '43' } }), /Issue 番号/);
+  });
+});
+
+// --- 複数リポジトリ（ハブ）---------------------------------------------------
+
+const STATE_SCRIPT = fileURLToPath(new URL('./state.mjs', import.meta.url));
+const runState = (args, input) => spawnSync(process.execPath, [STATE_SCRIPT, ...args], { encoding: 'utf8', input });
+
+test('複数リポジトリモードの番号付けは、リポジトリ名の後ろに # と番号を入れる', () => {
+  assert.equal(numberedName('受注サマリ', 42), '#42 受注サマリ');
+  assert.equal(numberedName('api 受注サマリ', 42, 'api'), 'api#42 受注サマリ');
+  assert.throws(() => numberedName('受注サマリ', 42, 'api'), /api/);
+});
+
+test('複数リポジトリモードでは、親とサブタスクのフォルダにそれぞれのリポジトリ名付きで番号を付ける', () => {
+  withTasksDir((root, tasksDir) => {
+    const dir = writeDraft(tasksDir, 'api 受注サマリ', [
+      { id: 'api 金額から除く', title: '金額から除く', issue: null, repo: 'api' },
+      { id: 'web 画面から除く', title: '画面から除く', issue: null, repo: 'web' },
+    ]);
+    const doc = JSON.parse(fs.readFileSync(path.join(dir, 'progress.json'), 'utf8'));
+    doc.repo = 'api';
+    fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify(doc));
+    const result = assignIssues(dir, { parent: 42, tasks: { 'api 金額から除く': 43, 'web 画面から除く': 12 } });
+    assert.equal(result.to, path.join(tasksDir, 'api#42 受注サマリ'));
+    assert.deepEqual(result.tasks.map((t) => t.to), ['api#43 金額から除く', 'web#12 画面から除く']);
+    assert.equal(fs.existsSync(path.join(result.to, 'web#12 画面から除く', 'spec.md')), true);
+  });
+});
+
+test('リポジトリの記録は、複数リポジトリモードでは必須で、ワークスペースに無い名前を弾く', () => {
+  withWorkspace(({ hub }) => {
+    const workspace = loadWorkspace(hub);
+    assert.deepEqual(validateRepos({ repo: 'api', tasks: [{ id: 'a', repo: 'web' }] }, workspace), []);
+    assert.equal(validateRepos({ tasks: [] }, workspace).length, 1);
+    assert.match(validateRepos({ repo: 'api', tasks: [{ id: 'a', repo: 'mobile' }] }, workspace)[0], /mobile/);
+  });
+  withWorkspace(({ hub }) => {
+    assert.match(validateRepos({ repo: 'api', tasks: [] }, loadWorkspace(hub))[0], /単一リポジトリ/);
+  }, { workspace: null });
+});
+
+test('作業するリポジトリは、サブタスクならそのタスクの repo、分解していなければ親の repo。単一リポジトリモードではハブ自身', () => {
+  withWorkspace(({ hub, repos }) => {
+    const workspace = loadWorkspace(hub);
+    const doc = { repo: 'api', tasks: [{ id: 'web#12 画面', repo: 'web' }], histories: [] };
+    assert.deepEqual(repoOf(doc, 'web#12 画面', workspace), { repo: 'web', repoPath: repos.web });
+    assert.deepEqual(repoOf({ repo: 'api', tasks: [], histories: [] }, 'main', workspace), { repo: 'api', repoPath: repos.api });
+    assert.throws(() => repoOf(doc, '存在しない', workspace), /未知のタスク/);
+  });
+  withWorkspace(({ hub }) => {
+    assert.deepEqual(repoOf({ tasks: [], histories: [] }, 'main', loadWorkspace(hub)), { repo: null, repoPath: hub });
+  }, { workspace: null });
+});
+
+test('積み上げの base は同じリポジトリの直前のタスクのブランチ。別リポジトリのタスクは飛ばす', () => {
+  withWorkspace(({ hub }) => {
+    const workspace = loadWorkspace(hub);
+    const tasks = [
+      { id: 'api#43 API', repo: 'api' },
+      { id: 'web#12 画面', repo: 'web' },
+      { id: 'api#44 集計', repo: 'api' },
+    ];
+    const doc = { repo: 'api', tasks, histories: [branch('api#43 API', 's1', 'feature/api-43'), branch('web#12 画面', 's2', 'feature/web-12')] };
+    assert.equal(branchBaseOf(doc, 'api#43 API', workspace).base, null);
+    assert.equal(branchBaseOf(doc, 'web#12 画面', workspace).base, null);
+    const third = branchBaseOf(doc, 'api#44 集計', workspace);
+    assert.equal(third.previousTask, 'api#43 API');
+    assert.equal(third.base, 'feature/api-43');
+    assert.equal(third.repo, 'api');
+  });
+});
+
+test('単一リポジトリモードの積み上げは、従来どおり直前のタスクのブランチ', () => {
+  withWorkspace(({ hub }) => {
+    const doc = { tasks: [{ id: '#43 a' }, { id: '#44 b' }], histories: [branch('#43 a', 's1', 'feature/43')] };
+    assert.equal(branchBaseOf(doc, '#44 b', loadWorkspace(hub)).base, 'feature/43');
+  }, { workspace: null });
+});
+
+test('ハブで init・show・review-base・list を通すと、タスクのリポジトリで git を扱う', () => {
+  withWorkspace(({ hub, repos }) => {
+    const dir = path.join(hub, TASKS_RELATIVE_PATH, 'web 文言の修正');
+    assert.equal(runState(['init', '--dir', dir, '--repo', 'mobile']).status, 1);
+    const init = runState(['init', '--dir', dir, '--repo', 'web']);
+    assert.equal(init.status, 0, init.stderr);
+
+    const show = JSON.parse(runState(['show', '--dir', dir]).stdout);
+    assert.equal(show.repo, 'web');
+    assert.equal(show.repoPath, repos.web);
+
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repos.web, encoding: 'utf8' }).stdout.trim();
+    const entry = JSON.stringify({ kind: 'branch', task: null, data: { base: 'main', baseSha: head, branch: 'feature/x' } });
+    assert.equal(runState(['append', '--dir', dir], entry).status, 0);
+    // 作業ディレクトリ（このテストではリポジトリ ai-doc）ではなく、web の HEAD を返す
+    const reviewBase = JSON.parse(runState(['review-base', '--dir', dir]).stdout);
+    assert.equal(reviewBase.head, head);
+
+    assert.equal(listTasks(hub).tasks[0].repo, 'web');
+  });
+});
+
+test('_drafts 配下は一覧に出さず、ignored にも入れない', () => {
+  withTasksDir((root, tasksDir) => {
+    fs.mkdirSync(path.join(tasksDir, '_drafts'));
+    writeTask(tasksDir, '#42 進行中', { phase: 'execution', currentTask: null, updatedAt: at(1), taskStates: {} });
+    const { tasks, ignored } = listTasks(root);
+    assert.deepEqual(tasks.map((t) => t.name), ['#42 進行中']);
+    assert.deepEqual(ignored, []);
   });
 });

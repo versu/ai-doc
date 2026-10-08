@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   checkStringArray,
+  createDocSettings,
   isPlainObject,
   loadDocSettings,
   missingDocErrors,
@@ -24,6 +25,7 @@ import {
   resolveDocPath,
   settingsPathOf,
 } from '../../../_lib/skill-settings.mjs';
+import { loadWorkspace, unsyncedRepos } from '../../../_lib/workspace.mjs';
 
 export { repoRootOf, resolveDocPath };
 
@@ -48,12 +50,54 @@ export function defaults() {
 /**
  * init が書き出す雛形。implementation.docs / review.docs は既定に追加される項目なので空にしておく。
  * 既定の規約を並べると、現場で足した規約との区別がつかなくなるため。
+ * repos は複数リポジトリモードのときだけ、対象リポジトリごとの空の枠を書く（単一リポジトリでは使わないため省く）。
  */
-export function initialConfig() {
+export function initialConfig(repoKeys = []) {
   const content = defaults();
   content.implementation.docs = [];
   content.review.docs = [];
+  if (repoKeys.length === 0) {
+    delete content.repos;
+  } else {
+    content.repos = Object.fromEntries(repoKeys.map((key) => [key, { implementation: { docs: [] }, review: { docs: [] } }]));
+  }
   return content;
+}
+
+const REPO_SECTIONS = ['implementation', 'review'];
+
+/**
+ * repos（リポジトリ別の追加規約）を検証する。キーはリポジトリ名なので既定値の雛形からは作れず、ここで個別に見る。
+ * キーが .code-workspace のリポジトリ名かどうかは、ワークスペースを読む loadConfig で確かめる。
+ */
+function mergeRepos(value, errors) {
+  const merged = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!isPlainObject(entry)) {
+      errors.push(`repos.${key}: オブジェクト（{ ... }）を指定してください（現在: ${JSON.stringify(entry)}）`);
+      continue;
+    }
+    merged[key] = {};
+    for (const name of Object.keys(entry)) {
+      if (!REPO_SECTIONS.includes(name)) {
+        errors.push(`repos.${key}.${name}: 未知のキーです。使えるのは ${REPO_SECTIONS.join(' / ')} です（綴りを確認してください）`);
+      }
+    }
+    for (const section of REPO_SECTIONS) {
+      const sectionValue = entry[section] ?? {};
+      merged[key][section] = { docs: [] };
+      if (!isPlainObject(sectionValue)) {
+        errors.push(`repos.${key}.${section}: オブジェクト（{ ... }）を指定してください（現在: ${JSON.stringify(sectionValue)}）`);
+        continue;
+      }
+      for (const name of Object.keys(sectionValue)) {
+        if (name !== 'docs') errors.push(`repos.${key}.${section}.${name}: 未知のキーです。使えるのは docs です（綴りを確認してください）`);
+      }
+      const docs = sectionValue.docs ?? [];
+      if (checkStringArray(`repos.${key}.${section}.docs`, docs, errors)) merged[key][section].docs = docs;
+    }
+  }
+  return merged;
 }
 
 /**
@@ -79,6 +123,10 @@ export function mergeConfig(raw, base = defaults()) {
     if (!isPlainObject(value)) {
       errors.push(`${section}: オブジェクト（{ ... }）を指定してください（現在: ${JSON.stringify(value)}）`);
       merged[section] = { ...base[section] };
+      continue;
+    }
+    if (section === 'repos') {
+      merged.repos = mergeRepos(value, errors);
       continue;
     }
     for (const key of Object.keys(value)) {
@@ -112,7 +160,15 @@ export function mergeConfig(raw, base = defaults()) {
   return { config: merged, errors };
 }
 
-/** 設定を読み、既定値で補い、docs のパスを解決して存在を確認したものを返す。 */
+/** 同じファイルを二重に読ませないよう、解決後のパスで重複を除く（共通の規約とリポジトリ別の規約が同じファイルを指すことがある）。 */
+const uniqueByResolved = (docs) => [...new Map(docs.map((d) => [d.resolved, d])).values()];
+
+/**
+ * 設定を読み、既定値で補い、docs のパスを解決して存在を確認したものを返す。
+ *
+ * repoRoot（hubRoot）は .ai/ を置く場所。単一リポジトリモードではそのリポジトリのルート、
+ * 複数リポジトリモードではハブ。git 操作をする対象リポジトリは repos に並ぶ。
+ */
 export function loadConfig(cwd) {
   const repoRoot = repoRootOf(cwd);
   const configPath = settingsPathOf(repoRoot, SKILL_NAME);
@@ -134,7 +190,24 @@ export function loadConfig(cwd) {
     return { ok: false, reason: 'invalid-json', configPath, message: `JSON として読めません: ${e.message}` };
   }
 
+  const workspace = loadWorkspace(repoRoot);
+  if (!workspace.ok) {
+    return { ok: false, reason: 'invalid-workspace', configPath, message: workspace.errors.join('\n'), errors: workspace.errors };
+  }
+  // .code-workspace にリポジトリを足したのに sync を忘れていると、ハブから読み書きできずに実装が途中で止まる。ここで止める
+  const unsynced = unsyncedRepos(workspace);
+  if (unsynced.length > 0) {
+    const errors = [`ハブからファイルアクセスを許可していないリポジトリがあります: ${unsynced.join(', ')}。ハブで aidoc workspace sync を実行し、セッションを開き直してください`];
+    return { ok: false, reason: 'workspace-not-synced', configPath, message: errors[0], errors };
+  }
+
   const { config, errors } = mergeConfig(raw);
+  for (const key of Object.keys(config.repos ?? {})) {
+    if (!workspace.repos[key]) {
+      const known = Object.keys(workspace.repos);
+      errors.push(`repos.${key}: .code-workspace に無いリポジトリです${known.length > 0 ? `。使えるのは ${known.join(' / ')} です` : '（単一リポジトリモードでは repos は使いません）'}`);
+    }
+  }
   if (errors.length > 0) {
     return { ok: false, reason: 'invalid-value', configPath, message: errors.join('\n'), errors };
   }
@@ -145,8 +218,24 @@ export function loadConfig(cwd) {
   // 読ませるはずの規約が無いまま進むと、規約を守らない実装とレビューが通ってしまう。ここで止める
   const base = defaults();
   const isDefaultDoc = (p) => base.implementation.docs.includes(p) || base.review.docs.includes(p);
+  // リポジトリ別の規約の相対パスは、そのリポジトリのルートを起点にする。共通の規約はハブ（repoRoot）が起点のまま
+  const repoDocs = Object.fromEntries(Object.entries(workspace.repos).map(([key, repo]) => {
+    const extra = config.repos[key] ?? { implementation: { docs: [] }, review: { docs: [] } };
+    return [key, {
+      implementation: extra.implementation.docs.map((d) => resolveDoc(d, repo.resolved)),
+      review: extra.review.docs.map((d) => resolveDoc(d, repo.resolved)),
+    }];
+  }));
+
   const missingErrors = missingDocErrors(
-    [['implementation.docs', implementationDocs], ['review.docs', reviewDocs]],
+    [
+      ['implementation.docs', implementationDocs],
+      ['review.docs', reviewDocs],
+      ...Object.entries(repoDocs).flatMap(([key, docs]) => [
+        [`repos.${key}.implementation.docs`, docs.implementation],
+        [`repos.${key}.review.docs`, docs.review],
+      ]),
+    ],
     (p) => (isDefaultDoc(p) ? '。既定の規約なので、このプロジェクトで aidoc install を実行したか確認してください' : ''),
   );
   if (missingErrors.length > 0) {
@@ -162,10 +251,18 @@ export function loadConfig(cwd) {
   return {
     ok: true,
     configPath,
+    mode: workspace.mode,
     repoRoot,
+    hubRoot: repoRoot,
     orchestrator: config.orchestrator,
     implementation: { skills: config.implementation.skills, docs: implementationDocs },
     review: { skills: config.review.skills, docs: reviewDocs, roundCap: config.review.roundCap },
+    // そのリポジトリを担当するエージェントに渡す規約。共通の規約にリポジトリ別の規約を足したもの
+    repos: Object.fromEntries(Object.entries(workspace.repos).map(([key, repo]) => [key, {
+      path: repo.resolved,
+      implementation: { docs: uniqueByResolved([...implementationDocs, ...repoDocs[key].implementation]) },
+      review: { docs: uniqueByResolved([...reviewDocs, ...repoDocs[key].review]) },
+    }])),
   };
 }
 
@@ -196,22 +293,44 @@ export function checkAll(cwd) {
 
 /** 雛形を書き出す。既にあれば上書きせず、現在の内容を返す。 */
 export function createConfig(cwd) {
-  const configPath = settingsPathOf(repoRootOf(cwd), SKILL_NAME);
+  const repoRoot = repoRootOf(cwd);
+  const configPath = settingsPathOf(repoRoot, SKILL_NAME);
   if (fs.existsSync(configPath)) {
     return { created: false, reason: 'already-exists', configPath, content: JSON.parse(fs.readFileSync(configPath, 'utf8')) };
   }
-  const content = initialConfig();
+  const workspace = loadWorkspace(repoRoot);
+  const content = initialConfig(workspace.ok ? Object.keys(workspace.repos) : []);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, `${JSON.stringify(content, null, 2)}\n`);
   return { created: true, configPath, content };
 }
 
+/** 依頼の下書きなどを置くフォルダ。タスクの一覧には出さない（state.mjs の DRAFTS_DIR と同じ名前） */
+export const DRAFTS_RELATIVE_PATH = path.join('.ai', '_tasks', '_drafts');
+
+/** 下書き置き場のフォルダを作る。既にあれば何もしない。 */
+export function createDraftsDir(cwd) {
+  const dir = path.join(repoRootOf(cwd), DRAFTS_RELATIVE_PATH);
+  const created = !fs.existsSync(dir);
+  fs.mkdirSync(dir, { recursive: true });
+  return { created, dir };
+}
+
+/**
+ * 呼び出し先スキル（Issue・PR 作成）の設定の雛形を書き出す。既にあるものは上書きしない。
+ * オーケストレーターの導入と同時に作っておき、本文のテンプレートや規約をどこに書けばよいかを分かるようにするため。
+ */
+export function createCalleeSettings(cwd) {
+  return CALLEE_SKILLS.map((skill) => ({ skill, ...createDocSettings(skill, cwd) }));
+}
+
 // --- サブコマンド ---------------------------------------------------------
 
 const COMMANDS = {
-  /** 雛形を書き出す。既にあれば上書きせず、現在の内容を見せる。 */
+  /** 雛形を書き出す。既にあれば上書きせず、現在の内容を見せる。呼び出し先スキルの設定の雛形も書き出す。 */
   init(args) {
-    console.log(JSON.stringify(createConfig(args.repo ?? process.cwd()), null, 2));
+    const cwd = args.repo ?? process.cwd();
+    console.log(JSON.stringify({ ...createConfig(cwd), callees: createCalleeSettings(cwd), drafts: createDraftsDir(cwd) }, null, 2));
   },
 
   /** 解決済みの設定を返す。インラインシェルから呼ばれるため常に終了コード0。 */

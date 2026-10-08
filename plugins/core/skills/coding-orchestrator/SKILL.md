@@ -36,6 +36,9 @@ allowed-tools:
 **自分で `.ai/_settings/coding-orchestrator/settings.json` を読み直さない。**
 上に JSON が無ければインラインが権限で拒否されているので、同じコマンドを Bash で実行する。
 
+`hubRoot` を控えておく（`.ai/` を置く場所）。`mode` が `multi` なら、ここは複数のリポジトリを横断する**ハブ**で、
+git 操作をする対象リポジトリは `repos` に並ぶ（→「複数リポジトリを横断するとき」）。
+
 ---
 
 # 手順
@@ -57,6 +60,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/config.mjs check
 | `0` | STEP 2 へ |
 | `1` / `not-initialized` | `errors` と `initCommand` を示し、設定を作ってから呼び直すよう伝えて**止まる** |
 | `1` / `invalid-json`・`invalid-value` | `errors` を**すべて**示し、設定を直してから呼び直すよう伝えて**止まる** |
+| `1` / `invalid-workspace`・`workspace-not-synced` | 同上。ハブの `.code-workspace` の問題か、ハブから対象リポジトリへのファイルアクセスが許可されていない。後者は `aidoc workspace sync` の実行と、セッションの開き直しを伝える |
 | `1` / `missing-docs` | 同上。読ませるはずの規約が無いまま進むと、規約を守らない実装とレビューが通ってしまう |
 | `1` / `invalid-skill-settings` | 同上。Issue・PR 作成スキルの設定の問題。実装を終えたあとの Issue・PR 作成で初めて止まるのを避けるため、ここで止める |
 
@@ -76,7 +80,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/config.mjs check
 **次を実行して、進行中のタスクの一覧を得る。**
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/scripts/state.mjs list
+node ${CLAUDE_SKILL_DIR}/scripts/state.mjs list --repo "<hubRoot>"
 ```
 
 `.ai/_tasks/` の走査、`_done/` と無関係なフォルダ（`progress.json` の無いもの）の除外、
@@ -104,10 +108,11 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 
 フォルダ名に空白と `#` が入るので、**パスは必ず引用符で囲む**。
 **`status` だけを読む。`histories` を読み直さない。**
+作業するリポジトリは、出力の `repoPath`（サブタスクは `tasks[].repoPath`）を使う。
 
 | `status.phase` | すること |
 |---|---|
-| `preparation` | 合意の途中で中断している。STEP 3 をやり直す |
+| `preparation` | 合意の途中で中断している。spec の下書きを読み、STEP 3 の合意の確認から再開する |
 | `execution` | 下の表で再開位置を決めて STEP 4 へ |
 | `pr-created` | PR 作成済みで、レビュー対応と完了の指示を待っている。PR の指摘対応なら STEP 6、完了の指示なら STEP 7、別の依頼なら新しいタスクとして STEP 3 |
 
@@ -130,9 +135,12 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 1. 認識合わせ（依頼内容と現状の差分、前提）
 2. 未確定の設計判断
 3. タスク分解の要否（**既定は分解しない**。分解は例外）
-4. spec の合意（**合意前の spec をファイルに書き出さない**）
-5. 確定（Issue 起票 → `#<Issue 番号> <Issue タイトル>` でフォルダ作成 → spec 書き出し →
-   **`state.mjs init` を実行** → **`state.mjs append` で `agreement` を追記**）
+4. spec の下書きと合意（番号なしの `<タイトル>` でフォルダ作成 → spec の下書きを書き出し →
+   **`state.mjs init` を実行** → ファイルを**毎回読み直して**合意を取る）
+5. 確定（Issue 起票 → **`state.mjs assign-issues` でフォルダに番号を付ける** →
+   下書きの印を外す → **`state.mjs append` で `agreement` を追記**）
+
+合意済みかどうかは `phase` で決まる。下書きのファイルがあることを合意済みの意味に取らない。
 
 **2〜4 は `AskUserQuestion` で合意を取る。** 合意なしに STEP 4 へ進まない。
 
@@ -143,11 +151,11 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 
 | # | すること |
 |---|---|
-| 4-1 | ブランチ準備。1つ目は既定ブランチ、2つ目以降は**直前のタスクのブランチ**から切る（積み上げ）。`branch` を追記 |
-| 4-2 | 実装エージェントを新規起動。**返ってきたエージェント ID を履歴に残す** |
+| 4-1 | ブランチ準備。**`state.mjs branch-base` を実行**して base を決める（同じリポジトリの直前のタスクのブランチ。無ければ既定ブランチ）。`branch` を追記 |
+| 4-2 | 実装エージェントを新規起動し、`repoPath` を渡す。**返ってきたエージェント ID を履歴に残す** |
 | 4-3 | **`state.mjs review-base` を実行**して範囲を決め、レビュアーを**毎回新規起動**。裁定して `review` を追記 |
 | 4-4 | 区切りの確認。テストを流し、画面を作ったなら `AskUserQuestion` で目視確認を依頼する |
-| 4-5 | PR 作成（設定に従う）。**宛先は base ブランチ**。`pull-request` を追記 |
+| 4-5 | PR 作成（設定に従う）。**タスクのリポジトリに作り、宛先は base ブランチ**。`pull-request` を追記 |
 
 ### 4-3 のループの抜け方
 
@@ -208,7 +216,7 @@ PR を作り終えた、マージされた、といった状況から自分で�
 | STEP 2 | どのタスクの続きか、別の依頼か | 見つかったタスクを1つずつ並べ、最後に「別の依頼として新しく始める」を足す。各選択肢に `phase` と直近のサマリを添える |
 | STEP 3 | 未確定の設計判断 | 論点ごとに案を並べる。**推奨案を先頭に置き「（推奨）」を付ける** |
 | STEP 3 | タスク分解の要否 | 「分けない（推奨）」／「分ける」 |
-| STEP 3 | spec の内容 | 「この内容でよい」／「直したいところがある」 |
+| STEP 3 | spec の内容 | 「この内容でよい」／「ファイルを編集した」／「直したいところを伝える」 |
 | STEP 3・4-5 | Issue・PR を作ってよいか（設定が `"ask"`） | 「作る」／「作らない」 |
 | STEP 4-2 | 実装エージェントが返した未解決の質問 | 質問ごとに、**エージェントが置いた仮の判断を先頭**に並べる |
 | STEP 4-2 | `status` が `blocked` | 「Scope lock を広げる」／「別タスクに切り出す」／「今回はやらない」 |
@@ -230,8 +238,8 @@ PR を作り終えた、マージされた、といった状況から自分で�
 （履歴の追記と `status` の更新がセットにならず、再開が壊れる）。
 
 ```bash
-node ${CLAUDE_SKILL_DIR}/scripts/state.mjs list
-node ${CLAUDE_SKILL_DIR}/scripts/state.mjs <init|append|recompute|show|review-base|complete> --dir "<タスクディレクトリ>"
+node ${CLAUDE_SKILL_DIR}/scripts/state.mjs list --repo "<hubRoot>"
+node ${CLAUDE_SKILL_DIR}/scripts/state.mjs <init|append|assign-issues|recompute|show|branch-base|review-base|complete> --dir "<タスクディレクトリ>"
 ```
 
 `append` は戻り値の形を契約に照らして検証し、合わなければ**書き込まずに終了コード1**を返す。
@@ -246,6 +254,19 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs <init|append|recompute|show|review-ba
 レビュアーの分類は提案なので、`failureScenario` に具体的な入力と壊れるものを
 名指しできていない blocker は降格する。ここを素通しすると、
 「良くなる程度の提案」が blocker として積み上がり、レビューが終わらない。
+
+## 複数リポジトリを横断するとき
+
+起動時点の設定の `mode` が `multi` のとき。`.ai/` はハブにあり、git 操作は対象リポジトリで行う。
+
+- **作業場所は自分で組み立てない。** `state.mjs show` の `repoPath`・`branch-base` の結果を使う
+- エージェントには `repoPath` を、ブランチ準備・Issue 作成・PR 作成のスキルには作業リポジトリを渡す。
+  ハブで git を実行すると、別のリポジトリ（または git 管理外のフォルダ）を操作してしまう
+- 自分で `cd` したら、`state.mjs` と `config.mjs` を呼ぶ前にハブへ戻る
+- リポジトリをまたぐ依頼は、**リポジトリごとのタスクに必ず分解する**（1つの PR は1つのリポジトリにしか出せないため）。
+  手順は [references/preparation.md](references/preparation.md)
+- 規約は、エージェントに渡す `requiredDocs` を `repos.<リポジトリ>.implementation.docs`・`review.docs` から取る
+  （共通の規約にリポジトリ別の規約を足したもの）
 
 ## 実装エージェントは再開する。レビュアーは再開しない
 

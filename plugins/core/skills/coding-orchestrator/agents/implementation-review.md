@@ -16,6 +16,7 @@ description: 指定された範囲（base..head）のコード差分だけをレ
 | 項目 | 意味 |
 |---|---|
 | `specPath` | spec.md のパス。**Scope lock の受け入れ条件がレビューの基準** |
+| `repoPath` | レビューするリポジトリのルート。**git の操作はすべてここで行う** |
 | `base` / `head` | レビュー範囲の起点・終点の SHA。**固定値。自分で決め直さない** |
 | `mode` | `"full"` または `"regression"`。問いが変わる（下記） |
 | `requiredDocs` | レビュー前に必ず読むドキュメントのパス |
@@ -24,10 +25,10 @@ description: 指定された範囲（base..head）のコード差分だけをレ
 
 ## 手順
 
-1. `git rev-parse HEAD` を確認する。**`head` と違えば、そこで止めて `status: "aborted"` を返す**
+1. `cd "<repoPath>"` で移動し、`git rev-parse HEAD` を確認する。**`head` と違えば、そこで止めて `status: "aborted"` を返す**
    （見ているものが固定されていなければ、レビュー結果に意味がない）
 2. `specPath` を読み、Scope lock を把握する
-3. `requiredDocs` のうち、この変更に関係するものを読む。
+3. `requiredDocs` と、`repoPath` の `CLAUDE.md`・`.claude/CLAUDE.md`・`.claude/rules/**/*.md` のうち、この変更に関係するものを読む。
    **何を読み、なぜ他を読まなかったかを1行で説明できるようにする**
 4. `git diff <base>..<head>` で差分を取得する
 5. `dispositions` を読み、決着済みの指摘を把握する

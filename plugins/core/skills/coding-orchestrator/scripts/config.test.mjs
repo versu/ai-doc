@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { defaults, initialConfig, createConfig, mergeConfig, resolveDocPath, loadConfig, CONFIG_RELATIVE_PATH } from './config.mjs';
+import { defaults, initialConfig, createCalleeSettings, createConfig, createDraftsDir, mergeConfig, resolveDocPath, loadConfig, CONFIG_RELATIVE_PATH } from './config.mjs';
+import { withWorkspace } from '../../../_lib/test-workspace.mjs';
 
 function withRepo(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestration-'));
@@ -247,5 +248,91 @@ test('check はオーケストレーター側の問題を優先して reason に
     assert.equal(report.reason, 'invalid-value');
     assert.ok(report.errors.some((e) => e.startsWith('review.roundCap:')));
     assert.ok(report.errors.some((e) => e.startsWith('create-gh-pr')));
+  });
+});
+
+// --- 複数リポジトリ（ハブ）---------------------------------------------------
+
+test('repos の中身の形を検証する', () => {
+  const { errors } = mergeConfig({ repos: { api: { implementation: { docs: 'x' }, reveiw: {} }, web: [] } });
+  assert.ok(errors.some((e) => e.includes('repos.api.implementation.docs')));
+  assert.ok(errors.some((e) => e.includes('repos.api.reveiw')));
+  assert.ok(errors.some((e) => e.includes('repos.web')));
+});
+
+test('ハブでは対象リポジトリごとに、共通の規約にリポジトリ別の規約を足して返す。相対パスの起点はそのリポジトリ', () => {
+  withWorkspace(({ hub, repos }) => {
+    fs.writeFileSync(path.join(repos.api, 'php.md'), '# PHP');
+    writeConfig(hub, { repos: { api: { implementation: { docs: ['php.md'] } } } });
+    const result = loadConfig(hub);
+    assert.equal(result.ok, true, result.message);
+    assert.equal(result.mode, 'multi');
+    assert.equal(result.hubRoot, hub);
+    assert.equal(result.repos.api.path, repos.api);
+    assert.equal(result.repos.api.implementation.docs.at(-1).resolved, path.join(repos.api, 'php.md'));
+    assert.equal(result.repos.api.implementation.docs.length, defaults().implementation.docs.length + 1);
+    assert.equal(result.repos.web.implementation.docs.length, defaults().implementation.docs.length);
+    assert.equal(result.repos.web.review.docs.length, defaults().review.docs.length);
+  });
+});
+
+test('.code-workspace に無いリポジトリ名を repos に書くと弾く', () => {
+  withWorkspace(({ hub }) => {
+    writeConfig(hub, { repos: { mobile: {} } });
+    const result = loadConfig(hub);
+    assert.equal(result.reason, 'invalid-value');
+    assert.match(result.message, /repos\.mobile/);
+  });
+});
+
+test('リポジトリ別の規約のファイルが無ければ missing-docs で止まる', () => {
+  withWorkspace(({ hub }) => {
+    writeConfig(hub, { repos: { web: { review: { docs: ['ない.md'] } } } });
+    const result = loadConfig(hub);
+    assert.equal(result.reason, 'missing-docs');
+    assert.match(result.message, /repos\.web\.review\.docs/);
+  });
+});
+
+test('.code-workspace に問題があれば invalid-workspace で止まる', () => {
+  withWorkspace(({ hub }) => {
+    writeConfig(hub, {});
+    assert.equal(loadConfig(hub).reason, 'invalid-workspace');
+  }, { folders: [{ path: '../api', name: 'a b' }] });
+});
+
+test('ハブで init すると、対象リポジトリごとの repos の枠を書く。単一リポジトリでは repos を書かない', () => {
+  withWorkspace(({ hub }) => {
+    assert.deepEqual(Object.keys(createConfig(hub).content.repos), ['api', 'web']);
+  });
+  assert.equal('repos' in initialConfig(), false);
+});
+
+test('対象リポジトリへのファイルアクセスを許可していなければ workspace-not-synced で止まる', () => {
+  withWorkspace(({ hub }) => {
+    writeConfig(hub, {});
+    const result = loadConfig(hub);
+    assert.equal(result.reason, 'workspace-not-synced');
+    assert.match(result.message, /aidoc workspace sync/);
+  }, { synced: false });
+});
+
+test('呼び出し先スキル（Issue・PR 作成）の設定の雛形を書き出し、既にあれば上書きしない', () => {
+  withRepo((dir) => {
+    const created = createCalleeSettings(dir);
+    assert.deepEqual(created.map((c) => [c.skill, c.created]), [['create-gh-issue', true], ['create-gh-pr', true]]);
+    const prSettings = path.join(dir, '.ai', '_settings', 'create-gh-pr', 'settings.json');
+    fs.writeFileSync(prSettings, JSON.stringify({ template: null, docs: ['x.md'] }));
+    const again = createCalleeSettings(dir);
+    assert.deepEqual(again.map((c) => c.created), [false, false]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(prSettings, 'utf8')).docs, ['x.md']);
+  });
+});
+
+test('下書き置き場のフォルダを作る。既にあれば何もしない', () => {
+  withRepo((dir) => {
+    assert.equal(createDraftsDir(dir).created, true);
+    assert.equal(fs.existsSync(path.join(dir, '.ai', '_tasks', '_drafts')), true);
+    assert.equal(createDraftsDir(dir).created, false);
   });
 });
