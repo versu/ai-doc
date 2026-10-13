@@ -23,7 +23,7 @@
 
 | 項目 | 意味 |
 |---|---|
-| `specPath` | 読むべき spec.md のパス。Scope lock がこのエージェントへの契約。タスク名もここから分かる |
+| `specPath` | 読むべき spec.md のパス。Scope lock がこのエージェントへの契約。タスク名もここから分かる。詳細仕様書は spec の「詳細仕様書」の節のリンクから読ませるので、別の項目では渡さない |
 | `repoPath` | 作業するリポジトリのルート（`state.mjs show` の `repoPath`）。git もテストもここで行う |
 | `requiredDocs` | 着手前に必ず読むドキュメントのパス（設定 `implementation.docs` を解決したもの。複数リポジトリモードでは `repos.<リポジトリ>.implementation.docs`） |
 | `availableSkills` | 使ってよいスキルの解決済み名。空なら何も使わない |

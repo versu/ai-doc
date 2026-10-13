@@ -27,7 +27,8 @@ description: 指定された範囲（base..head）のコード差分だけをレ
 
 1. `cd "<repoPath>"` で移動し、`git rev-parse HEAD` を確認する。**`head` と違えば、そこで止めて `status: "aborted"` を返す**
    （見ているものが固定されていなければ、レビュー結果に意味がない）
-2. `specPath` を読み、Scope lock を把握する
+2. `specPath` を読み、Scope lock を把握する。「詳細仕様書」の節があれば、リンク先（DB 設計・API 定義など）も読む。
+   実装した列名・プロパティ名・型がそこに書かれた内容と食い違っていないかも見る
 3. `requiredDocs` と、`repoPath` の `CLAUDE.md`・`.claude/CLAUDE.md`・`.claude/rules/**/*.md` のうち、この変更に関係するものを読む。
    **何を読み、なぜ他を読まなかったかを1行で説明できるようにする**
 4. `git diff <base>..<head>` で差分を取得する

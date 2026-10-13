@@ -136,13 +136,26 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 2. 未確定の設計判断
 3. タスク分解の要否（**既定は分解しない**。分解は例外）
 4. spec の下書きと合意（番号なしの `<タイトル>` でフォルダ作成 → spec の下書きを書き出し →
-   **`state.mjs init` を実行** → ファイルを**毎回読み直して**合意を取る）
+   **`state.mjs init` を実行** → ファイルを**毎回読み直して**合意を取る）。
+   **DB スキーマまたは API のインターフェースを変えるなら、詳細仕様書も一緒に書き出して合意を取る**
+   （[references/detailed-spec.md](references/detailed-spec.md)）
 5. 確定（Issue 起票 → **`state.mjs assign-issues` でフォルダに番号を付ける** →
    下書きの印を外す → **`state.mjs append` で `agreement` を追記**）
 
 合意済みかどうかは `phase` で決まる。下書きのファイルがあることを合意済みの意味に取らない。
 
 **2〜4 は `AskUserQuestion` で合意を取る。** 合意なしに STEP 4 へ進まない。
+
+### spec はテクニカルライティング規約に沿って書く
+
+spec は、合意するユーザーが最初に読む文書でもある。**下書きを書き出す前に下の規約を読み、
+書いたあとに規約の各節を観点として読み直してから提示する。** 直したあとの spec も、Markdown の詳細仕様書も同じ。
+文書の種類は、規約の「読者の基準」の表の**設計書**として扱う。
+
+調査中に自分が使っていた略語・内部の呼び名・コード上の識別子は、ユーザーには初出になる。
+説明なしに並べると、内容が合っていても合意の判断ができない。
+
+@${CLAUDE_SKILL_DIR}/../../_docs/technical-writing.md
 
 ## STEP 4. 実行フェーズ（タスクごとに直列）
 
@@ -291,3 +304,4 @@ ID は `status.taskStates[<id>].agentId` から取る。
 | 状態ファイルのスキーマと `state.mjs` | [references/state.md](references/state.md) |
 | エージェントの入出力と裁定の基準 | [references/contracts.md](references/contracts.md) |
 | spec の雛形と書き方 | [references/spec-template.md](references/spec-template.md) |
+| 詳細仕様書（DB 設計・API 定義）を作る条件と書き方 | [references/detailed-spec.md](references/detailed-spec.md) |

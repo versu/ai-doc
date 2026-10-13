@@ -53,7 +53,8 @@ echo '{"kind":"branch","task":"#43 ...","data":{"base":"main","baseSha":"<sha>",
   `AskUserQuestion` で「Scope lock を広げる」／「別タスクに切り出す」／「今回はやらない」を聞く
 - `openQuestions` が返ったら、質問ごとに `AskUserQuestion` を出す。
   **エージェントが置いた仮の判断を選択肢の先頭に並べる**（そのままでよければ選ぶだけで済む）。
-  回答が仮置きと違えば spec を更新し、`decision` の履歴を追記してから実装を続けさせる
+  回答が仮置きと違えば spec を更新し（詳細仕様書に関わる内容ならそちらも合わせて直す）、
+  `decision` の履歴を追記してから実装を続けさせる
 
 ## 3. レビューのラウンド
 
