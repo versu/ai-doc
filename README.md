@@ -32,6 +32,7 @@ ai-doc/
 | `/core:commit` | 今回の修正をコミット規約に沿ってコミットする |
 | `/core:technical-writing` | 技術記事・設計書・README・手順書などを、テクニカルライティング規約に沿って書く |
 | `/core:technical-writing-review` | 技術文書をテクニカルライティング規約に照らしてレビューし、指摘と修正案を返す |
+| `/core:write-notion-page` | 用意済みの内容を Notion に書き込む（ページの新規作成・追記、データベースへの登録。ローカルの画像もアップロードする） |
 
 プラグインの定義方針（marketplace.json の記載項目、外部プラグインの扱い）は [docs/plugin-management.md](docs/plugin-management.md) にまとめています。
 
