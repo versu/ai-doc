@@ -16,6 +16,23 @@ if (Number(process.versions.node.split('.')[0]) < REQUIRED_NODE_MAJOR) {
   process.exit(1);
 }
 
+/**
+ * ハブで開いたセッションのハブのパス。aidoc workspace sync がハブの .claude/settings.local.json の env に書き、
+ * Claude Code がセッションの開始時に読み込んで、セッション中のコマンドすべてに渡す。
+ * 作業ディレクトリは Bash の cd でセッションの途中にずれるため、設定を探す起点にはこちらを優先する。
+ */
+export const HUB_ROOT_ENV = 'AIDOC_HUB_ROOT';
+
+/**
+ * 設定を探す起点。--repo、ハブで開いたセッションならハブ、それ以外は作業ディレクトリの順に使う。
+ * 作業ディレクトリだけを見ると、ハブで開いたセッションで対象リポジトリへ cd したあとに、
+ * そのリポジトリの設定を読んでしまう（対象リポジトリにも設定があるとエラーにならない）。
+ */
+export function startDirOf(args, env = process.env) {
+  if (typeof args.repo === 'string') return args.repo;
+  return env[HUB_ROOT_ENV] || process.cwd();
+}
+
 export function repoRootOf(cwd) {
   try {
     // git 管理外（ハブなど）では失敗するのが正常なので、git のエラー出力は出さない
@@ -172,7 +189,7 @@ export function parseArgs(argv) {
  */
 export function runDocSettingsCli(skill, argv = process.argv.slice(2)) {
   const [command, ...rest] = argv;
-  const cwd = parseArgs(rest).repo ?? process.cwd();
+  const cwd = startDirOf(parseArgs(rest));
   const print = (value) => console.log(JSON.stringify(value, null, 2));
 
   switch (command) {

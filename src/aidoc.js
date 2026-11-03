@@ -16,7 +16,7 @@ const USAGE = `使い方:
   aidoc pr check           [対象ディレクトリ]   PR 作成スキルの設定ファイルを検証する
   aidoc issue init         [対象ディレクトリ]   Issue 作成スキルの設定ファイルを作る
   aidoc issue check        [対象ディレクトリ]   Issue 作成スキルの設定ファイルを検証する
-  aidoc workspace sync     [ハブのディレクトリ]   .code-workspace の対象リポジトリに合わせて、ハブのアクセス許可と CLAUDE.md の案内を整える`;
+  aidoc workspace sync     [ハブのディレクトリ]   .code-workspace の対象リポジトリに合わせて、ハブのアクセス許可・環境変数 AIDOC_HUB_ROOT・CLAUDE.md の案内を整える`;
 
 const COMMANDS = {
   install,

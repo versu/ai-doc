@@ -34,13 +34,14 @@
 
 | 項目 | 型 | 意味 |
 |---|---|---|
-| `phase` | 文字列 | `"preparation"`（合意前）/ `"execution"`（実装・レビュー中）/ `"pr-created"`（全タスクが終わり、PR のレビュー対応と完了の指示を待っている）/ `"done"`（ユーザーの指示で完了にした。`completion` がある） |
+| `phase` | 文字列 | `"preparation"`（合意前）/ `"execution"`（実装・レビュー中）/ `"pr-created"`（全タスクが終わって後回しにした PR も作り終え、PR のレビュー対応と完了の指示を待っている）/ `"done"`（ユーザーの指示で完了にした。`completion` がある） |
 | `currentTask` | 文字列/null | いま進めているタスクの `id`。分解していない、または進行中のタスクが無ければ `null` |
 | `updatedAt` | 文字列 | 最後に更新した日時（ISO 8601） |
 | `taskStates` | オブジェクト | タスクの `id` をキーにした進み具合。分解していなければ `main` の1件 |
 | `round` | オブジェクト/null | 最後に扱ったタスクのレビュー状況。どのタスクにも着手していなければ `null` |
 | `openQuestions` | 配列 | 未解決のものだけ。`{ question, task, assumption }` |
 | `deferred` | 配列 | 先送りの一覧。`{ task, summary, reason }`（`reason` は `follow-up` / `stop`） |
+| `pendingPullRequests` | 配列 | PR を後回しにしたまま、まだ作っていないタスクの `id`。`tasks` の並び（積み上げの順）。空でなければ、全タスクが終わっても `phase` は `execution` のまま |
 
 ### `taskStates[id]`
 
@@ -92,6 +93,7 @@
 | `verification` | 区切りでテストを流したとき | `command`、`result`（`pass` / `fail`） |
 | `decision` | ユーザーが判断したとき | `question`、`answer` |
 | `pull-request` | PR を作ったとき | `number`、`base` |
+| `pull-request-skip` | タスクの PR を今は作らないと決めたとき | `reason`（`deferred`: 全タスクが終わってから作る / `declined`: 作らない） |
 | `pr-feedback` | PR の指摘への対応を始めるとき | `pullRequest`、`accepted`、`rejected` |
 | `push` | 既存の PR へ push したとき | `pullRequest`、`head` |
 | `completion` | ユーザーの指示でタスクを完了にしたとき（`complete` が追記する） | `forced`（`pr-created` になる前に完了にしたか） |

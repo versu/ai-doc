@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   checkStringArray,
+  HUB_ROOT_ENV,
   createDocSettings,
   isPlainObject,
   loadDocSettings,
@@ -24,8 +25,9 @@ import {
   resolveDoc,
   resolveDocPath,
   settingsPathOf,
+  startDirOf,
 } from '../../../_lib/skill-settings.mjs';
-import { loadWorkspace, unsyncedRepos } from '../../../_lib/workspace.mjs';
+import { hubRootEnvSynced, loadWorkspace, unsyncedRepos } from '../../../_lib/workspace.mjs';
 
 export { repoRootOf, resolveDocPath };
 
@@ -196,9 +198,12 @@ export function loadConfig(cwd) {
   }
   // .code-workspace にリポジトリを足したのに sync を忘れていると、ハブから読み書きできずに実装が途中で止まる。ここで止める
   const unsynced = unsyncedRepos(workspace);
-  if (unsynced.length > 0) {
-    const errors = [`ハブからファイルアクセスを許可していないリポジトリがあります: ${unsynced.join(', ')}。ハブで aidoc workspace sync を実行し、セッションを開き直してください`];
-    return { ok: false, reason: 'workspace-not-synced', configPath, message: errors[0], errors };
+  const syncErrors = [];
+  if (unsynced.length > 0) syncErrors.push(`ハブからファイルアクセスを許可していないリポジトリがあります: ${unsynced.join(', ')}。ハブで aidoc workspace sync を実行し、セッションを開き直してください`);
+  // 書かれていないと、対象リポジトリへ cd したあとにそのリポジトリの設定を読み、タスクフォルダもそちらに作ってしまう
+  if (!hubRootEnvSynced(workspace)) syncErrors.push(`ハブの .claude/settings.local.json の env に ${HUB_ROOT_ENV} がありません。ハブで aidoc workspace sync を実行し、セッションを開き直してください`);
+  if (syncErrors.length > 0) {
+    return { ok: false, reason: 'workspace-not-synced', configPath, message: syncErrors[0], errors: syncErrors };
   }
 
   const { config, errors } = mergeConfig(raw);
@@ -329,13 +334,13 @@ export function createCalleeSettings(cwd) {
 const COMMANDS = {
   /** 雛形を書き出す。既にあれば上書きせず、現在の内容を見せる。呼び出し先スキルの設定の雛形も書き出す。 */
   init(args) {
-    const cwd = args.repo ?? process.cwd();
+    const cwd = startDirOf(args);
     console.log(JSON.stringify({ ...createConfig(cwd), callees: createCalleeSettings(cwd), drafts: createDraftsDir(cwd) }, null, 2));
   },
 
   /** 解決済みの設定を返す。インラインシェルから呼ばれるため常に終了コード0。 */
   show(args) {
-    console.log(JSON.stringify(loadConfig(args.repo ?? process.cwd()), null, 2));
+    console.log(JSON.stringify(loadConfig(startDirOf(args)), null, 2));
   },
 
   /**
@@ -343,7 +348,7 @@ const COMMANDS = {
    * 判定は show と同じ loadConfig に、呼び出し先スキルの設定の検証を足したもの。
    */
   check(args) {
-    const report = checkAll(args.repo ?? process.cwd());
+    const report = checkAll(startDirOf(args));
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
   },

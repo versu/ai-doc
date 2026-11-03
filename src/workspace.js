@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { HUB_ROOT_ENV } from '../plugins/core/_lib/skill-settings.mjs';
 import { loadWorkspace } from '../plugins/core/_lib/workspace.mjs';
 import { RELOAD_NOTICE } from './install.js';
 import { readSettings, writeSettings } from './settings.js';
@@ -36,6 +37,22 @@ function allowRepoAccess(hubRoot, repos) {
   settings.permissions = { ...settings.permissions, additionalDirectories: [...directories, ...missing] };
   writeSettings(hubRoot, settings);
   console.log(`- 対象リポジトリへのファイルアクセス許可を追加: ${missing.join(', ')}`);
+}
+
+/**
+ * ハブのパスを、ハブで開いたセッションの環境変数として書く。
+ * セッション中に対象リポジトリへ cd しても、スキルがハブの設定を読み、ハブにタスクフォルダを作るようにするため。
+ */
+function setHubRootEnv(hubRoot) {
+  const settings = readSettings(hubRoot);
+  if (settings.env?.[HUB_ROOT_ENV] === hubRoot) {
+    console.log(`- 環境変数 ${HUB_ROOT_ENV}: 設定済み`);
+    return;
+  }
+
+  settings.env = { ...settings.env, [HUB_ROOT_ENV]: hubRoot };
+  writeSettings(hubRoot, settings);
+  console.log(`- 環境変数 ${HUB_ROOT_ENV} を設定: ${hubRoot}`);
 }
 
 function addGuide(hubRoot, workspaceFile) {
@@ -75,6 +92,7 @@ export function sync(targetDir, { notice = true } = {}) {
   for (const [key, repo] of Object.entries(workspace.repos)) console.log(`  ${key}: ${repo.resolved}`);
 
   allowRepoAccess(workspace.hubRoot, Object.values(workspace.repos).map((repo) => repo.resolved));
+  setHubRootEnv(workspace.hubRoot);
   addGuide(workspace.hubRoot, workspace.workspaceFile);
 
   if (notice) console.log(RELOAD_NOTICE);

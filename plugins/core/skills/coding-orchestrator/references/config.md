@@ -26,7 +26,7 @@ Issue・PR の本文のテンプレートや追加の規約は、それぞれ Is
 | 項目 | 型 | 取りうる値 | 既定値 | 設定したとき | 意味 |
 |---|---|---|---|---|---|
 | `orchestrator.createIssue` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | 上書き | 準備フェーズの合意後に Issue を起票するか。`"ask"` はその都度確認する |
-| `orchestrator.createPullRequest` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | 上書き | タスクが1つ終わるたびに PR を作るか |
+| `orchestrator.createPullRequest` | 文字列/真偽値 | `"ask"` / `true` / `false` | `"ask"` | 上書き | タスクが終わったときに PR を作るか。タスクを分けた場合は、`"ask"` でも `true` でも既定で全タスクが終わってからまとめて作る（`"ask"` ならタスクごとに今作るかを選べる） |
 | `implementation.skills` | 文字列の配列 | スキル名 | `[]` | 上書き | 実装エージェントに使わせるスキル |
 | `implementation.docs` | 文字列の配列 | パス | 下記「既定の規約」 | **既定に追加** | 実装エージェントが着手前に必ず読むドキュメント |
 | `review.skills` | 文字列の配列 | スキル名 | `[]` | 上書き | レビュアーエージェントに使わせるスキル |
@@ -62,6 +62,21 @@ Issue・PR の本文のテンプレートや追加の規約は、それぞれ Is
 - git リポジトリでないフォルダと、ハブと同じリポジトリのフォルダは対象にしない
 - `repos` のキーはこのリポジトリ名に限る。`config.mjs init` は、対象リポジトリごとの空の枠を書く
 - `repos.<リポジトリ>` の相対パスの起点は**そのリポジトリのルート**。共通の `implementation.docs`・`review.docs` の起点はハブのまま
+
+### ハブで開いたセッションの目印 `AIDOC_HUB_ROOT`
+
+`aidoc workspace sync` は、ハブの `.claude/settings.local.json` の `env` に、ハブ自身のパスを `AIDOC_HUB_ROOT` として書く。
+Claude Code はセッションの開始時にこれを読み込み、そのセッションのコマンドすべてに渡す。
+
+`config.mjs` と Issue・PR 作成スキルの `settings.mjs` は、設定を探す起点を次の順に決める。
+
+1. `--repo` で渡されたフォルダ
+2. `AIDOC_HUB_ROOT`（ハブで開いたセッションだけにある）
+3. 作業ディレクトリ
+
+作業ディレクトリだけを起点にすると、ハブで開いたセッションで対象リポジトリへ `cd` したあとに、そのリポジトリの設定を読んでしまう。
+対象リポジトリにも `aidoc install` 済みの設定があるとエラーにならず、タスクフォルダもそのリポジトリに作られる。
+リポジトリを単体で開いたセッションには `AIDOC_HUB_ROOT` が無いので、これまでどおり作業ディレクトリから探す。
 
 `show` は `mode`（`single` / `multi`）、`hubRoot`（`.ai/` を置く場所）、`repos` を返す。
 `repos.<リポジトリ>` には `path`（リポジトリのルート）と、共通の規約にリポジトリ別の規約を足した `implementation.docs`・`review.docs` が入る。
@@ -113,6 +128,7 @@ Issue・PR 作成スキルの設定（ファイルが無ければ既定で通る
 | JSON として読める | `{ broken` | `invalid-json` |
 | `.code-workspace` が妥当 | 2つある、リポジトリ名が重複している、`folders` のフォルダが無い | `invalid-workspace` |
 | ハブから対象リポジトリへのファイルアクセスが許可されている | リポジトリを足したのに `aidoc workspace sync` を実行していない | `workspace-not-synced` |
+| ハブの `env` に `AIDOC_HUB_ROOT`（ハブ自身のパス）がある | この仕組みを入れる前に作ったハブで、`aidoc workspace sync` を実行し直していない | `workspace-not-synced` |
 | 最上位と各セクションがオブジェクト | `[]`、`"review": []` | `invalid-value` |
 | 未知のキーが無い | `implemntation`、`review.roundcap` | `invalid-value` |
 | 値の型と範囲 | `createIssue: "yes"`、`roundCap: 0`、`skills: "x"` | `invalid-value` |

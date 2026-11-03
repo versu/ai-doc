@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createDocSettings, loadDocSettings, settingsPathOf, validateDocSettings } from './skill-settings.mjs';
+import { createDocSettings, HUB_ROOT_ENV, loadDocSettings, settingsPathOf, startDirOf, validateDocSettings } from './skill-settings.mjs';
 
 const SKILL = 'create-gh-pr';
 
@@ -131,5 +131,26 @@ test('CLI の check は問題が無ければ終了コード0', () => {
     const check = runCli('check', dir);
     assert.equal(check.status, 0);
     assert.equal(JSON.parse(check.stdout).ok, true);
+  });
+});
+
+test('設定を探す起点は --repo、ハブで開いたセッションのハブ、作業ディレクトリの順', () => {
+  assert.equal(startDirOf({ repo: '/repo' }, { [HUB_ROOT_ENV]: '/hub' }), '/repo');
+  assert.equal(startDirOf({}, { [HUB_ROOT_ENV]: '/hub' }), '/hub');
+  assert.equal(startDirOf({}, {}), process.cwd());
+  assert.equal(startDirOf({}, { [HUB_ROOT_ENV]: '' }), process.cwd());
+});
+
+test('ハブで開いたセッションでは、対象リポジトリへ cd していてもハブの設定を読む', () => {
+  withRepo((hub) => {
+    withRepo((repo) => {
+      writeSettings(hub, { docs: [] });
+      writeSettings(repo, { docs: [] });
+      const show = (env) => JSON.parse(spawnSync(process.execPath, [CLI, 'show'], { cwd: repo, encoding: 'utf8', env }).stdout);
+      const env = { ...process.env };
+      delete env[HUB_ROOT_ENV];
+      assert.equal(show(env).settingsPath, settingsPathOf(fs.realpathSync(repo), SKILL));
+      assert.equal(show({ ...env, [HUB_ROOT_ENV]: hub }).settingsPath, settingsPathOf(hub, SKILL));
+    });
   });
 });

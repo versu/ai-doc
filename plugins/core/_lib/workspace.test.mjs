@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { initRepo, withWorkspace } from './test-workspace.mjs';
-import { loadWorkspace, stripJsonc, unsyncedRepos } from './workspace.mjs';
+import { hubRootEnvSynced, loadWorkspace, stripJsonc, unsyncedRepos } from './workspace.mjs';
 
 test('JSONC のコメントと末尾のカンマを取り除く。文字列の中身には触らない', () => {
   const text = `{
@@ -91,5 +91,20 @@ test('ハブからファイルアクセスを許可していないリポジト�
 test('単一リポジトリモードでは、ファイルアクセスの許可を求めない', () => {
   withWorkspace(({ hub }) => {
     assert.deepEqual(unsyncedRepos(loadWorkspace(hub)), []);
+  }, { workspace: null, synced: false });
+});
+
+test('ハブの設定の env にハブ自身のパスが書かれているかを返す。単一リポジトリモードでは求めない', () => {
+  withWorkspace(({ hub }) => {
+    assert.equal(hubRootEnvSynced(loadWorkspace(hub)), false);
+    fs.mkdirSync(path.join(hub, '.claude'));
+    const write = (env) => fs.writeFileSync(path.join(hub, '.claude', 'settings.local.json'), JSON.stringify({ env }));
+    write({ AIDOC_HUB_ROOT: '/別のハブ' });
+    assert.equal(hubRootEnvSynced(loadWorkspace(hub)), false);
+    write({ AIDOC_HUB_ROOT: hub });
+    assert.equal(hubRootEnvSynced(loadWorkspace(hub)), true);
+  }, { synced: false });
+  withWorkspace(({ hub }) => {
+    assert.equal(hubRootEnvSynced(loadWorkspace(hub)), true);
   }, { workspace: null, synced: false });
 });

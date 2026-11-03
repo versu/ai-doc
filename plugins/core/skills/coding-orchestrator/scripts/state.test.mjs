@@ -146,6 +146,34 @@ test('回答済みの質問は未解決から消える', () => {
   assert.deepEqual(status.openQuestions, [{ question: '通知は必要か', task: '01-a', assumption: '送らない' }]);
 });
 
+test('PR を後回しにしたタスクが残っていれば、全タスクが終わっても execution のまま', () => {
+  const tasks = [{ id: '#43 a', title: 'A', issue: 43 }, { id: '#44 b', title: 'B', issue: 44 }];
+  const skip = (task, reason) => ({ at: at(3), kind: 'pull-request-skip', task, data: { reason } });
+  const done = (task) => [branch(task, 's', `feature/${task}`), implementation(task), review(task)];
+  const agreement = { at: at(0), kind: 'agreement', task: null, data: { summary: '合意', parentIssue: 42 } };
+  const histories = [agreement, ...done('#43 a'), skip('#43 a', 'deferred'), ...done('#44 b')];
+
+  const deferred = computeStatus(docOf(tasks, histories));
+  assert.deepEqual(deferred.pendingPullRequests, ['#43 a']);
+  assert.equal(deferred.phase, 'execution');
+  assert.equal(deferred.currentTask, null);
+
+  // 後回しにした PR を作れば pr-created になる
+  const created = computeStatus(docOf(tasks, [...histories, { at: at(4), kind: 'pull-request', task: '#43 a', data: { number: 50, base: 'main' } }]));
+  assert.deepEqual(created.pendingPullRequests, []);
+  assert.equal(created.phase, 'pr-created');
+
+  // 作らないと決め直しても pr-created になる
+  const declined = computeStatus(docOf(tasks, [...histories, skip('#43 a', 'declined')]));
+  assert.deepEqual(declined.pendingPullRequests, []);
+  assert.equal(declined.phase, 'pr-created');
+});
+
+test('PR の後回しの理由は deferred / declined に限る', () => {
+  assert.deepEqual(validateEntry({ kind: 'pull-request-skip', task: '#43 a', data: { reason: 'deferred' } }), []);
+  assert.equal(validateEntry({ kind: 'pull-request-skip', task: '#43 a', data: { reason: 'later' } }).length, 1);
+});
+
 test('タスク分解しない場合は main キーに集約され、task は null で記録される', () => {
   const histories = [branch(null, 'base1', 'feat/x'), implementation(null), review(null, { unresolvedBlockers: 0 })];
   const status = computeStatus(docOf([], histories));
@@ -551,3 +579,4 @@ test('_drafts 配下は一覧に出さず、ignored にも入れない', () => {
     assert.deepEqual(ignored, []);
   });
 });
+

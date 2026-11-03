@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { repoRootOf } from './config.mjs';
+import { startDirOf } from '../../../_lib/skill-settings.mjs';
 import { loadWorkspace } from '../../../_lib/workspace.mjs';
 
 const REQUIRED_NODE_MAJOR = 20;
@@ -44,6 +45,8 @@ const SHAPES = {
   verification: { command: 'string', result: ['pass', 'fail'] },
   decision: { question: 'string', answer: 'string' },
   'pull-request': { number: 'number', base: 'string' },
+  // deferred は全タスクが終わってから作る、declined は作らないと決めた
+  'pull-request-skip': { reason: ['deferred', 'declined'] },
   'pr-feedback': { pullRequest: 'number', accepted: 'array', rejected: 'array' },
   push: { pullRequest: 'number', head: 'string' },
   completion: { forced: 'boolean' },
@@ -234,6 +237,19 @@ function deferredOf(doc, groups) {
   return out;
 }
 
+/**
+ * PR を後回しにしたまま、まだ作っていないタスクの id を tasks の並び（積み上げの順）で返す。
+ * PR の作成と後回し・見送りのうち、最後に記録したものが後回しなら残っている。
+ */
+function pendingPullRequestsOf(groups) {
+  const pending = [];
+  for (const [id, entries] of groups) {
+    const last = [...entries].reverse().find((h) => h.kind === 'pull-request' || h.kind === 'pull-request-skip');
+    if (last?.kind === 'pull-request-skip' && last.data.reason === 'deferred') pending.push(id);
+  }
+  return pending;
+}
+
 /** histories と tasks から status を作り直す。status が壊れたときの復旧にも使う。 */
 export function computeStatus(doc, updatedAt) {
   const groups = groupByTask(doc);
@@ -253,11 +269,16 @@ export function computeStatus(doc, updatedAt) {
   }
 
   const finished = Object.values(taskStates).every((t) => t.state === 'done' || t.state === 'stopped');
+  const pendingPullRequests = pendingPullRequestsOf(groups);
   const agreed = doc.histories.some((h) => h.kind === 'agreement');
   // 全タスクが終わっても done にはしない。PR のレビュー対応が続くことがあるので、
-  // ユーザーが完了を指示した（completion がある）ときだけ done にする
+  // ユーザーが完了を指示した（completion がある）ときだけ done にする。
+  // 後回しにした PR が残っていれば、まだ作り終えていないので execution のままにする
   const completed = doc.histories.some((h) => h.kind === 'completion');
-  const phase = completed ? 'done' : !agreed ? 'preparation' : finished ? 'pr-created' : 'execution';
+  const phase = completed ? 'done'
+    : !agreed ? 'preparation'
+    : finished && pendingPullRequests.length === 0 ? 'pr-created'
+    : 'execution';
 
   // 最後に扱ったタスク。タスクに属さない履歴（合意など）は読み飛ばす
   const lastKey = doc.tasks.length === 0
@@ -275,6 +296,7 @@ export function computeStatus(doc, updatedAt) {
     round: lastKey ? roundOf(groups.get(lastKey) ?? []) : null,
     openQuestions: openQuestionsOf(doc, groups),
     deferred: deferredOf(doc, groups),
+    pendingPullRequests,
   };
 }
 
@@ -695,7 +717,7 @@ const COMMANDS = {
 
   /** 進行中のタスクを一覧する。どれを扱うかを選んでもらうために使う。 */
   list(args) {
-    console.log(JSON.stringify(listTasks(args.repo ?? process.cwd()), null, 2));
+    console.log(JSON.stringify(listTasks(startDirOf(args)), null, 2));
   },
 
   /**

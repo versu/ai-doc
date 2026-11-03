@@ -36,8 +36,9 @@ allowed-tools:
 **自分で `.ai/_settings/coding-orchestrator/settings.json` を読み直さない。**
 上に JSON が無ければインラインが権限で拒否されているので、同じコマンドを Bash で実行する。
 
-`hubRoot` を控えておく（`.ai/` を置く場所）。`mode` が `multi` なら、ここは複数のリポジトリを横断する**ハブ**で、
-git 操作をする対象リポジトリは `repos` に並ぶ（→「複数リポジトリを横断するとき」）。
+`hubRoot` を控えておく（`.ai/` を置く場所）。`mode` が `single`（1つのリポジトリで使う）ならそのリポジトリのルート。
+`multi` なら複数のリポジトリを横断する**ハブ**で、git 操作をする対象リポジトリは `repos` に並ぶ（→「複数リポジトリを横断するとき」）。
+タスクフォルダ・spec・詳細仕様書は、どちらのモードでも `<hubRoot>/.ai/_tasks/` の下に作る。
 
 ---
 
@@ -60,7 +61,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/config.mjs check
 | `0` | STEP 2 へ |
 | `1` / `not-initialized` | `errors` と `initCommand` を示し、設定を作ってから呼び直すよう伝えて**止まる** |
 | `1` / `invalid-json`・`invalid-value` | `errors` を**すべて**示し、設定を直してから呼び直すよう伝えて**止まる** |
-| `1` / `invalid-workspace`・`workspace-not-synced` | 同上。ハブの `.code-workspace` の問題か、ハブから対象リポジトリへのファイルアクセスが許可されていない。後者は `aidoc workspace sync` の実行と、セッションの開き直しを伝える |
+| `1` / `invalid-workspace`・`workspace-not-synced` | 同上。ハブの `.code-workspace` の問題か、ハブの準備（対象リポジトリへのファイルアクセスの許可、環境変数 `AIDOC_HUB_ROOT`）が済んでいない。後者は `aidoc workspace sync` の実行と、セッションの開き直しを伝える |
 | `1` / `missing-docs` | 同上。読ませるはずの規約が無いまま進むと、規約を守らない実装とレビューが通ってしまう |
 | `1` / `invalid-skill-settings` | 同上。Issue・PR 作成スキルの設定の問題。実装を終えたあとの Issue・PR 作成で初めて止まるのを避けるため、ここで止める |
 
@@ -126,7 +127,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
 | `running` | `null` | 4-2（まだレビューしていない） |
 | `running` | あり | 4-3 |
 | `blocked` | — | `AskUserQuestion` で判断を仰ぐ。Scope lock を越える判断が要る状態 |
-| `stopped` / `done` | — | 次のタスクの 4-1 |
+| `stopped` / `done` | — | 次のタスクの 4-1。全タスクが終わっていて `status.pendingPullRequests` が空でなければ STEP 5（後回しにした PR を作る） |
 
 ## STEP 3. 準備フェーズ
 
@@ -139,7 +140,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/state.mjs show --dir "<2-1 で得た dir>"
    **`state.mjs init` を実行** → ファイルを**毎回読み直して**合意を取る）。
    **DB スキーマまたは API のインターフェースを変えるなら、詳細仕様書も一緒に書き出して合意を取る**
    （[references/detailed-spec.md](references/detailed-spec.md)）
-5. 確定（Issue 起票 → **`state.mjs assign-issues` でフォルダに番号を付ける** →
+5. 確定（Issue 起票。本文は spec の**背景と Scope lock** → **`state.mjs assign-issues` でフォルダに番号を付ける** →
    下書きの印を外す → **`state.mjs append` で `agreement` を追記**）
 
 合意済みかどうかは `phase` で決まる。下書きのファイルがあることを合意済みの意味に取らない。
@@ -168,7 +169,7 @@ spec は、合意するユーザーが最初に読む文書でもある。**下�
 | 4-2 | 実装エージェントを新規起動し、`repoPath` を渡す。**返ってきたエージェント ID を履歴に残す** |
 | 4-3 | **`state.mjs review-base` を実行**して範囲を決め、レビュアーを**毎回新規起動**。裁定して `review` を追記 |
 | 4-4 | 区切りの確認。テストを流し、画面を作ったなら `AskUserQuestion` で目視確認を依頼する |
-| 4-5 | PR 作成（設定に従う）。**タスクのリポジトリに作り、宛先は base ブランチ**。`pull-request` を追記 |
+| 4-5 | PR 作成（設定に従う）。**タスクを分けていて最後のタスクでなければ、既定で後回しにする**（`pull-request-skip` を追記）。作るときは**タスクのリポジトリに作り、宛先は base ブランチ**。`pull-request` を追記 |
 
 ### 4-3 のループの抜け方
 
@@ -181,9 +182,11 @@ spec は、合意するユーザーが最初に読む文書でもある。**下�
 
 ## STEP 5. 締める
 
-1. `status.deferred` の一覧を提示する（先送りが静かに忘れられるのを防ぐ）
-2. 作った PR の一覧と、**マージは古い順**であることを伝える（積み上げのため）
-3. **タスクディレクトリは移さない。** PR のレビュー対応（STEP 6）が続くことがあるため。
+1. 後回しにした PR（`status.pendingPullRequests`）があれば、**全体の動作確認を頼んでから**、積み上げの順にまとめて作る
+   （[references/execution.md](references/execution.md) の「全タスク完了後」）
+2. `status.deferred` の一覧を提示する（先送りが静かに忘れられるのを防ぐ）
+3. 作った PR の一覧と、**マージは古い順**であることを伝える（積み上げのため）
+4. **タスクディレクトリは移さない。** PR のレビュー対応（STEP 6）が続くことがあるため。
    「レビュー対応が済んだら『タスクを完了にして』と伝えれば完了にする」と案内する
 
 ## STEP 6. PR の指摘に対応する
@@ -231,6 +234,8 @@ PR を作り終えた、マージされた、といった状況から自分で�
 | STEP 3 | タスク分解の要否 | 「分けない（推奨）」／「分ける」 |
 | STEP 3 | spec の内容 | 「この内容でよい」／「ファイルを編集した」／「直したいところを伝える」 |
 | STEP 3・4-5 | Issue・PR を作ってよいか（設定が `"ask"`） | 「作る」／「作らない」 |
+| STEP 4-5 | タスクを分けていて最後のタスクでないとき（設定が `"ask"`） | 「次のタスクに進む（推奨）」／「このタスクの PR を今作る」 |
+| STEP 5 | 後回しにした PR を作る前の、全タスクを通した動作確認 | 「問題なかった」／「問題があった」 |
 | STEP 4-2 | 実装エージェントが返した未解決の質問 | 質問ごとに、**エージェントが置いた仮の判断を先頭**に並べる |
 | STEP 4-2 | `status` が `blocked` | 「Scope lock を広げる」／「別タスクに切り出す」／「今回はやらない」 |
 | STEP 4-3 | `roundCap` に達したとき | 「打ち切って次へ（推奨）」／「もう1周だけ回す」 |

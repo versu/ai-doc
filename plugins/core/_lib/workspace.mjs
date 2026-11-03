@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { repoRootOf } from './skill-settings.mjs';
+import { HUB_ROOT_ENV, repoRootOf } from './skill-settings.mjs';
 
 const WORKSPACE_EXTENSION = '.code-workspace';
 
@@ -136,28 +136,51 @@ export function loadWorkspace(cwd) {
   return { ok: errors.length === 0, mode, hubRoot, workspaceFile, repos, errors };
 }
 
+/** ハブの Claude Code の設定ファイルを、読めたものだけ返す。 */
+function claudeSettingsOf(hubRoot) {
+  const all = [];
+  for (const name of ['settings.local.json', 'settings.json']) {
+    try {
+      all.push(JSON.parse(fs.readFileSync(path.join(hubRoot, '.claude', name), 'utf8')));
+    } catch {
+      // 無い・読めない設定ファイルは、何も書いていないものとして扱う
+    }
+  }
+  return all;
+}
+
+const realpathOrResolved = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+
 /** ハブの Claude Code の設定で、ファイルアクセスを許可しているディレクトリ（実体のパス）。 */
 function allowedDirectoriesOf(hubRoot) {
   const allowed = new Set();
-  for (const name of ['settings.local.json', 'settings.json']) {
-    const file = path.join(hubRoot, '.claude', name);
-    let settings;
-    try {
-      settings = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch {
-      continue;
-    }
+  for (const settings of claudeSettingsOf(hubRoot)) {
     for (const dir of settings?.permissions?.additionalDirectories ?? []) {
       if (typeof dir !== 'string') continue;
-      const resolved = path.resolve(hubRoot, dir.startsWith('~') ? path.join(os.homedir(), dir.slice(1)) : dir);
-      try {
-        allowed.add(fs.realpathSync(resolved));
-      } catch {
-        allowed.add(resolved);
-      }
+      allowed.add(realpathOrResolved(path.resolve(hubRoot, dir.startsWith('~') ? path.join(os.homedir(), dir.slice(1)) : dir)));
     }
   }
   return allowed;
+}
+
+/**
+ * ハブの Claude Code の設定の env に、ハブ自身のパス（HUB_ROOT_ENV）が書かれているか。
+ * 書かれていないと、ハブで開いたセッションで対象リポジトリへ cd したあとに、そのリポジトリの設定を読んでしまう。
+ * 設定の検証から呼び、aidoc workspace sync の実行し直しを促す。
+ */
+export function hubRootEnvSynced(workspace) {
+  if (workspace.mode !== 'multi') return true;
+  const hub = realpathOrResolved(workspace.hubRoot);
+  return claudeSettingsOf(workspace.hubRoot).some((settings) => {
+    const value = settings?.env?.[HUB_ROOT_ENV];
+    return typeof value === 'string' && realpathOrResolved(value) === hub;
+  });
 }
 
 /**

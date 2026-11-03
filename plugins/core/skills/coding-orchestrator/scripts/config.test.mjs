@@ -317,6 +317,31 @@ test('対象リポジトリへのファイルアクセスを許可していな�
   }, { synced: false });
 });
 
+test('ハブの設定の env に AIDOC_HUB_ROOT が無ければ workspace-not-synced で止まる', () => {
+  withWorkspace(({ hub, repos }) => {
+    writeConfig(hub, {});
+    const settings = { permissions: { additionalDirectories: Object.values(repos) } };
+    fs.writeFileSync(path.join(hub, '.claude', 'settings.local.json'), JSON.stringify(settings));
+    const result = loadConfig(hub);
+    assert.equal(result.reason, 'workspace-not-synced');
+    assert.match(result.message, /AIDOC_HUB_ROOT/);
+  });
+});
+
+test('ハブで開いたセッションでは、対象リポジトリへ cd していてもハブの設定を読む', () => {
+  withWorkspace(({ hub, repos }) => {
+    writeConfig(hub, {});
+    writeConfig(repos.api, {});
+    const show = (env) => JSON.parse(spawnSync(process.execPath, [CONFIG_SCRIPT, 'show'], { cwd: repos.api, encoding: 'utf8', env }).stdout);
+    const env = { ...process.env };
+    delete env.AIDOC_HUB_ROOT;
+    assert.equal(show(env).hubRoot, repos.api);
+    const fromHub = show({ ...env, AIDOC_HUB_ROOT: hub });
+    assert.equal(fromHub.hubRoot, hub);
+    assert.equal(fromHub.mode, 'multi');
+  });
+});
+
 test('呼び出し先スキル（Issue・PR 作成）の設定の雛形を書き出し、既にあれば上書きしない', () => {
   withRepo((dir) => {
     const created = createCalleeSettings(dir);
